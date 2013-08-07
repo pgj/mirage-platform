@@ -5,4 +5,6 @@ through an `OS` OCaml module. The following backends are available:
 
 * Xen: a microkernel backend that can run against Xen3+
 
+* kFreeBSD: runs Mirage apps inside the FreeBSD kernel
+
 For documentation, visit http://openmirage.org

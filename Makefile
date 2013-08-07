@@ -38,3 +38,6 @@ unix-%:
 
 xen-%:
 	$(MAKE) OS=xen PREFIX=$(PREFIX) $*
+
+kfreebsd-%:
+	$(MAKE) OS=kfreebsd PREFIX=$(PREFIX) $*
