@@ -389,7 +389,8 @@ intnat caml_major_collection_slice (intnat howmuch)
 
   if (caml_gc_phase == Phase_idle) caml_compact_heap_maybe ();
 
-  caml_stat_major_words += caml_allocated_words;
+  caml_stat_major_words = fixpt_add(caml_stat_major_words,
+    fixpt_from_int(caml_allocated_words));
   caml_allocated_words = 0;
   caml_dependent_allocated = 0;
   caml_extra_heap_resources = 0;
@@ -506,7 +507,12 @@ void caml_finish_major_cycle (void)
   Assert (caml_gc_phase == Phase_sweep);
   while (caml_gc_phase == Phase_sweep) sweep_slice (LONG_MAX);
   Assert (caml_gc_phase == Phase_idle);
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  caml_stat_major_words = fixpt_add(caml_stat_major_words,
+    fixpt_from_int(caml_allocated_words));
+#else
   caml_stat_major_words += caml_allocated_words;
+#endif
   caml_allocated_words = 0;
 }
 
