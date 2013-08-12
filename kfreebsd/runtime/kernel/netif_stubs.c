@@ -49,7 +49,8 @@
 #include "caml/fail.h"
 #include "caml/bigarray.h"
 
-#define NETIF_DEBUG	1
+const u_char lladdr_prefix[4]           = { 0x02, 0xAD, 0xBE, 0xEF };
+const u_char lladdr_all[ETHER_ADDR_LEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 struct mbuf_entry {
 	LIST_ENTRY(mbuf_entry)	me_next;
@@ -62,7 +63,11 @@ struct plugged_if {
 	u_short	pi_index;
 	u_short	pi_llindex;
 	int	pi_flags;
-	char	pi_lladdr[32];
+	u_char	pi_lladdr[ETHER_ADDR_LEN];	/* Real MAC address */
+	u_char	pi_lladdr_v[ETHER_ADDR_LEN];	/* Virtual MAC address */
+#ifdef NETIF_DEBUG
+	int	pi_rx_qlen;
+#endif
 	char	pi_xname[IFNAMSIZ];
 	struct  mtx			pi_rx_lock;
 	LIST_HEAD(, mbuf_entry)		pi_rx_head;
@@ -146,11 +151,14 @@ caml_plug_vif(value id)
 	CAMLparam1(id);
 	CAMLlocal1(result);
 	struct ifnet *ifp;
-	struct ifaddr *ifa;
 	struct sockaddr_dl *sdl;
 	struct plugged_if *pip;
+	char	lladdr_str[32];
+	u_char	lladdr[ETHER_ADDR_LEN];
 	int found;
-	u_char lladdr[8];
+#ifdef NETIF_DEBUG
+	u_char	*p1, *p2;
+#endif
 
 	pip = malloc(sizeof(struct plugged_if), M_MIRAGE, M_NOWAIT | M_ZERO);
 
@@ -160,29 +168,25 @@ caml_plug_vif(value id)
 	found = 0;
 	IFNET_WLOCK();
 	TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+		if (strncmp(ifp->if_xname, String_val(id), IFNAMSIZ) != 0)
+			continue;
+
+		/* "Enable" the fake NetGraph node. */
+		IFP2AC(ifp)->ac_netgraph = (void *) 1;
+		pip->pi_ifp   = ifp;
+		pip->pi_index = ifp->if_index;
+		pip->pi_flags = ifp->if_flags;
+		bcopy(ifp->if_xname, pip->pi_xname, IFNAMSIZ);
+
 		IF_ADDR_RLOCK(ifp);
-		if (strncmp(ifp->if_xname, String_val(id), IFNAMSIZ) == 0) {
-			/* "Enable" the fake NetGraph node. */
-			IFP2AC(ifp)->ac_netgraph = (void *) 1;
-			pip->pi_ifp   = ifp;
-			pip->pi_index = ifp->if_index;
-			pip->pi_flags = ifp->if_flags;
-			bcopy(ifp->if_xname, pip->pi_xname, IFNAMSIZ);
-			TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
-				sdl = (struct sockaddr_dl *) ifa->ifa_addr;
-				if (sdl != NULL &&
-				    sdl->sdl_family == AF_LINK &&
-				    sdl->sdl_type == IFT_ETHER) {
-					pip->pi_llindex = sdl->sdl_index;
-					bcopy(LLADDR(sdl), lladdr, sizeof(lladdr));
-					found = 1;
-					break;
-				}
-			}
-			IF_ADDR_RUNLOCK(ifp);
-			break;
-		}
+		sdl = (struct sockaddr_dl *) ifp->if_addr->ifa_addr;
+		if (sdl != NULL && sdl->sdl_family == AF_LINK &&
+		    sdl->sdl_type == IFT_ETHER)
+			bcopy(LLADDR(sdl), pip->pi_lladdr, ETHER_ADDR_LEN);
 		IF_ADDR_RUNLOCK(ifp);
+
+		found = 1;
+		break;
 	}
 	IFNET_WUNLOCK();
 
@@ -191,8 +195,15 @@ caml_plug_vif(value id)
 		caml_failwith("Invalid interface");
 	}
 
-	sprintf(pip->pi_lladdr, "%02x:%02x:%02x:%02x:%02x:%02x", lladdr[0],
+	bcopy(lladdr_prefix, lladdr, sizeof(lladdr_prefix));
+	pip->pi_llindex = plugged + 1;
+	lladdr[4] = pip->pi_llindex >> 8;
+	lladdr[5] = pip->pi_llindex & 0xFF;
+
+	sprintf(lladdr_str, "%02x:%02x:%02x:%02x:%02x:%02x", lladdr[0],
 	    lladdr[1], lladdr[2], lladdr[3], lladdr[4], lladdr[5]);
+
+	bcopy(lladdr, pip->pi_lladdr_v, sizeof(lladdr));
 
 	mtx_init(&pip->pi_rx_lock, "plugged_if_rx", NULL, MTX_DEF);
 	LIST_INIT(&pip->pi_rx_head);
@@ -203,10 +214,20 @@ caml_plug_vif(value id)
 	TAILQ_INSERT_TAIL(&pihead, pip, pi_next);
 	plugged++;
 
+#ifdef NETIF_DEBUG
+	p1 = pip->pi_lladdr;
+	p2 = pip->pi_lladdr_v;
+	printf("caml_plug_vif: ifname=[%s] MAC=("
+	    "real=%02x:%02x:%02x:%02x:%02x:%02x, "
+	    "virtual=%02x:%02x:%02x:%02x:%02x:%02x)\n",
+	    pip->pi_xname, p1[0], p1[1], p1[2], p1[3], p1[4], p1[5],
+	    p2[0], p2[1], p2[2], p2[3], p2[4], p2[5]);
+#endif
+
 	result = caml_alloc(3, 0);
 	Store_field(result, 0, Val_bool(pip->pi_flags & IFF_UP));
 	Store_field(result, 1, Val_int(pip->pi_llindex));
-	Store_field(result, 2, caml_copy_string(pip->pi_lladdr));
+	Store_field(result, 2, caml_copy_string(lladdr_str));
 	CAMLreturn(result);
 }
 
@@ -233,6 +254,10 @@ caml_unplug_vif(value id)
 	}
 	IFNET_WUNLOCK();
 
+#ifdef NETIF_DEBUG
+	printf("caml_unplug_vif: ifname=[%s]\n", pip->pi_xname);
+#endif
+
 	TAILQ_REMOVE(&pihead, pip, pi_next);
 
 	e1 = LIST_FIRST(&pip->pi_rx_head);
@@ -257,10 +282,14 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 {
 	struct plugged_if *pip;
 	struct mbuf_entry *e;
+	struct ether_header *eh;
+	char mine, bcast;
+#ifdef NETIF_DEBUG
+	int i;
+#endif
 
 #ifdef NETIF_DEBUG
-	printf("netif_ether_intput: if=[%s]\n", ifp->if_xname);
-	printf("plugged = %d\n", plugged);
+	printf("New incoming frame on if=[%s]!\n", ifp->if_xname);
 #endif
 
 	if (plugged == 0)
@@ -268,20 +297,39 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 
 	pip = find_pi_by_index(ifp->if_index);
 
+	if (pip == NULL)
+		return;
+
+	eh = mtod(*mp, struct ether_header *);
+	mine  = bcmp(eh->ether_dhost, pip->pi_lladdr_v, ETHER_ADDR_LEN) == 0;
+	bcast = bcmp(eh->ether_dhost, lladdr_all, ETHER_ADDR_LEN) == 0;
+
 #ifdef NETIF_DEBUG
-	printf("pip=%p, mp=%p\n", pip, mp);
+	printf("Destination: %02x:%02x:%02x:%02x:%02x:%02x (%04x), %s.\n",
+	    eh->ether_dhost[0], eh->ether_dhost[1], eh->ether_dhost[2],
+	    eh->ether_dhost[3], eh->ether_dhost[4], eh->ether_dhost[5],
+	    ntohs(eh->ether_type), (mine || bcast) ? "intercepting" : "skipping");
 #endif
 
-	if (pip == NULL)
+	/* Let the frame escape if it is neither ours nor broadcast. */
+	if (!mine && !bcast)
 		return;
 
 	e = (struct mbuf_entry *) malloc(sizeof(struct mbuf_entry), M_MIRAGE,
 	    M_NOWAIT);
-	e->me_m = *mp;
+	e->me_m = bcast ? m_copypacket(*mp, M_DONTWAIT) : *mp;
 	mtx_lock(&pip->pi_rx_lock);
 	LIST_INSERT_HEAD(&pip->pi_rx_head, e, me_next);
+#ifdef NETIF_DEBUG
+	i = (++pip->pi_rx_qlen);
+#endif
 	mtx_unlock(&pip->pi_rx_lock);
-	*mp = NULL;
+#ifdef NETIF_DEBUG
+	printf("[%s]: %d frames are queued.\n", pip->pi_xname, i);
+#endif
+
+	if (!bcast)
+		*mp = NULL;
 }
 
 CAMLprim value
@@ -294,6 +342,13 @@ caml_get_mbufs(value id)
 	struct mbuf_entry *e2;
 	struct mbuf *m;
 	struct mbuf *n;
+#ifdef NETIF_DEBUG
+	int num_pages;
+#endif
+
+#ifdef NETIF_DEBUG
+	printf("caml_get_mbufs(): invoked\n");
+#endif
 
 	result = Val_emptylist;
 
@@ -301,6 +356,12 @@ caml_get_mbufs(value id)
 		CAMLreturn(result);
 
 	pip = find_pi_by_index(Int_val(id));
+
+#ifdef NETIF_DEBUG
+	printf("caml_get_mbufs(): pip=%p\n", pip);
+	num_pages = 0;
+#endif
+
 	if (pip == NULL)
 		CAMLreturn(result);
 
@@ -320,6 +381,10 @@ caml_get_mbufs(value id)
 				Store_field(r, 0, t);
 				Store_field(r, 1, result);
 				result = r;
+#ifdef NETIF_DEBUG
+				num_pages++;
+				pip->pi_rx_qlen--;
+#endif
 			}
 		}
 		e2 = LIST_NEXT(e1, me_next);
@@ -329,57 +394,94 @@ caml_get_mbufs(value id)
 	LIST_INIT(&pip->pi_rx_head);
 	mtx_unlock(&pip->pi_rx_lock);
 
+#ifdef NETIF_DEBUG
+	printf("caml_get_mbufs(): shipped %d pages.\n", num_pages);
+#endif
+
 	CAMLreturn(result);
 }
 
-/* This function is intentionally left blank. */
 int
 netif_ether_output(struct ifnet *ifp, struct mbuf **mp)
 {
+#ifdef NETIF_DEBUG
+	printf("New outgoing frame on if=[%s], feeding back.\n", ifp->if_xname);
+#endif
+
+	if (plugged == 0)
+		return 0;
+
+	netif_ether_input(ifp, mp);
 	return 0;
 }
 
 static void
 netif_mbuf_free(void *p1, void *p2)
 {
-	u_int *u = (u_int *) p1;
+	struct caml_ba_meta *meta = (struct caml_ba_meta *) p1;
 
-	/* u[0]: refcount */
-	if (--u[0] == 0) {
-		/* u[1]: data_size */
-		contigfree(p2, u[1], M_MIRAGE);
-		free(u, M_MIRAGE);
+#ifdef NETIF_DEBUG
+	printf("netif_mbuf_free: %p, %p\n", p1, p2);
+#endif
+
+	switch (meta->bm_type) {
+		case BM_IOPAGE:
+			if (--(meta->bm_refcnt) > 0)
+				return;
+			contigfree(p2, meta->bm_size, M_MIRAGE);
+			break;
+
+		case BM_MBUF:
+			m_free(meta->bm_mbuf);
+			break;
+
+		default:
+			printf("Unknown Bigarray metadata type: %02x\n",
+			    meta->bm_type);
+			break;
 	}
+
+	free(meta, M_MIRAGE);
 }
 
 static struct mbuf *
-netif_map_to_mbuf(void *data, u_int *u, size_t frag_len)
+netif_map_to_mbuf(struct caml_ba_array *b, int v_off, int *v_len)
 {
 	struct mbuf **mp;
 	struct mbuf *m;
 	struct mbuf *frag;
+	struct caml_ba_meta *meta;
+	void *data;
+	size_t frag_len;
 	char *p;
+
+	meta = (struct caml_ba_meta *) b->data2;
+	data = (char *) b->data + v_off;
+	frag_len = min(meta->bm_size - v_off, *v_len);
+	*v_len = frag_len;
 
 	mp = &frag;
 	p = data;
 
 	while (frag_len > 0) {
 		MGET(m, M_DONTWAIT, MT_DATA);
-		if (m != NULL) {
-			m->m_flags       |= M_EXT;
-			m->m_ext.ext_type = EXT_EXTREF;
-			m->m_ext.ext_buf  = (void *) p;
-			m->m_ext.ext_free = netif_mbuf_free;
-			m->m_ext.ext_arg1 = u;
-			m->m_ext.ext_arg2 = data;
-			m->m_ext.ref_cnt  = &u[0];
-			m->m_len          = min(MCLBYTES, frag_len);
-			m->m_data         = m->m_ext.ext_buf;
-			*(m->m_ext.ref_cnt) += 1;
-		} else {
+
+		if (m == NULL) {
 			m_freem(frag);
 			return NULL;
 		}
+
+		m->m_flags       |= M_EXT;
+		m->m_ext.ext_type = EXT_EXTREF;
+		m->m_ext.ext_buf  = (void *) p;
+		m->m_ext.ext_free = netif_mbuf_free;
+		m->m_ext.ext_arg1 = meta;
+		m->m_ext.ext_arg2 = data;
+		m->m_ext.ref_cnt  = &meta->bm_refcnt;
+		m->m_len          = min(MCLBYTES, frag_len);
+		m->m_data         = m->m_ext.ext_buf;
+		*(m->m_ext.ref_cnt) += 1;
+
 		frag_len -= m->m_len;
 		p += m->m_len;
 		*mp = m;
@@ -399,10 +501,11 @@ caml_put_mbufs(value id, value bufs)
 	struct mbuf *frag;
 	struct mbuf *pkt;
 	struct caml_ba_array *b;
-	u_int *u;
-	size_t pkt_len, ary_len;
+	struct ifnet *ifp;
+	size_t pkt_len;
 	int v_off, v_len;
-	char *p;
+	char bcast, real;
+	struct ether_header *eh;
 
 	if ((bufs == Val_emptylist) || (plugged == 0))
 		CAMLreturn(Val_unit);
@@ -411,6 +514,7 @@ caml_put_mbufs(value id, value bufs)
 	if (pip == NULL)
 		CAMLreturn(Val_unit);
 
+	ifp = pip->pi_ifp;
 	pkt_len = 0;
 	mp = &pkt;
 
@@ -420,28 +524,45 @@ caml_put_mbufs(value id, value bufs)
 		v_off = Int_val(Field(t, 1));
 		v_len = Int_val(Field(t, 2));
 		b = Caml_ba_array_val(v);
-		u = (u_int *) b->data2;
-		ary_len = min(u[1] - v_off, v_len);
-		p = (char *) b->data + v_off;
-		frag = netif_map_to_mbuf(p, u, ary_len);
+		frag = netif_map_to_mbuf(b, v_off, &v_len);
 		if (frag == NULL)
 			caml_failwith("No memory for mapping to mbuf");
 		*mp = frag;
 		mp = &(frag->m_next);
-		pkt_len += ary_len;
+		pkt_len += v_len;
 		bufs = Field(bufs, 1);
 	}
 
 	pkt->m_flags       |= M_PKTHDR;
 	pkt->m_pkthdr.len   = pkt_len;
-	pkt->m_pkthdr.rcvif = NULL;
+	pkt->m_pkthdr.rcvif = ifp;
 	SLIST_INIT(&pkt->m_pkthdr.tags);
 
 	if (pkt->m_pkthdr.len > pip->pi_ifp->if_mtu)
 		printf("%s: Packet is greater (%d) than the MTU (%ld)\n",
 		    pip->pi_xname, pkt->m_pkthdr.len, pip->pi_ifp->if_mtu);
 
-	ether_output_frame(pip->pi_ifp, pkt);
+	eh = mtod(pkt, struct ether_header *);
+	real  = bcmp(eh->ether_dhost, pip->pi_lladdr, ETHER_ADDR_LEN) == 0;
+	bcast = bcmp(eh->ether_dhost, lladdr_all, ETHER_ADDR_LEN) == 0;
+
+#ifdef NETIF_DEBUG
+	printf("Sending to: %02x:%02x:%02x:%02x:%02x:%02x (%04x), %s%s.\n",
+	    eh->ether_dhost[0], eh->ether_dhost[1], eh->ether_dhost[2],
+	    eh->ether_dhost[3], eh->ether_dhost[4], eh->ether_dhost[5],
+	    ntohs(eh->ether_type),
+	    (real || bcast)  ? "[if_input]"  : "",
+	    (!real && bcast) ? "[if_output]" : "");
+#endif
+
+	/* Sending to the real Ethernet address. */
+	if (real || bcast)
+		(ifp->if_input)(ifp,
+		    bcast ? m_copypacket(pkt, M_DONTWAIT) : pkt);
+
+	if (!real && bcast)
+		(ifp->if_transmit)(ifp, pkt);
+
 	CAMLreturn(Val_unit);
 }
 

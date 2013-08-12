@@ -196,7 +196,7 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   struct caml_ba_array * b;
   intnat dimcopy[CAML_BA_MAX_NUM_DIMS];
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  u_int *u;
+  struct caml_ba_meta *meta;
 #endif
 
   Assert(num_dims >= 1 && num_dims <= CAML_BA_MAX_NUM_DIMS);
@@ -226,18 +226,22 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   res = caml_alloc_custom(&caml_ba_ops, asize, size, CAML_BA_MAX_MEMORY);
   b = Caml_ba_array_val(res);
 #if defined(__FreeBSD__) && defined(_KERNEL)
+  b->data2 = __malloc(sizeof(struct caml_ba_meta));
+  if (b->data2 == NULL) caml_raise_out_of_memory();
+  meta = (struct caml_ba_meta *) b->data2;
+
   if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_MBUF) {
-    b->data2 = data;
-    b->data  = mtod((struct mbuf *) b->data2, void *);
+    meta->bm_type = BM_MBUF;
+    meta->bm_mbuf = data;
+    b->data = mtod((struct mbuf *) meta->bm_mbuf, void *);
   }
   else {
-    b->data  = data;
-    b->data2 = __malloc(2 * sizeof(u_int));
-    if (b->data2 == NULL) caml_raise_out_of_memory();
-    u = (u_int *) b->data2;
-    for (u[1] = 0, i = 0; i < num_dims; i++)
-      u[1] += dim[i];
-    u[0] = 1;
+    meta->bm_type = BM_IOPAGE;
+    meta->bm_mbuf = NULL;
+    b->data = data;
+    for (meta->bm_size = 0, i = 0; i < num_dims; i++)
+      meta->bm_size += dim[i];
+    meta->bm_refcnt = 1;
   }
 #else
   b->data = data;
@@ -583,21 +587,22 @@ static void caml_ba_finalize(value v)
 {
   struct caml_ba_array * b = Caml_ba_array_val(v);
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  u_int *u;
+  struct caml_ba_meta *meta;
+#endif
+
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  meta = (struct caml_ba_meta *) b->data2;
 #endif
 
   switch (b->flags & CAML_BA_MANAGED_MASK) {
   case CAML_BA_EXTERNAL:
     break;
   case CAML_BA_MANAGED:
-#if defined(__FreeBSD__) && defined(_KERNEL)
-    u = (u_int *) b->data2;
-#endif
     if (b->proxy == NULL) {
 #if defined(__FreeBSD__) && defined(_KERNEL)
-      if (--u[0] == 0) {
-          contigfree(b->data, u[1], M_MIRAGE);
-	  __free(u);
+      if (--(meta->bm_refcnt) == 0) {
+          contigfree(b->data, meta->bm_size, M_MIRAGE);
+          __free(meta);
       }
 #endif
       __free(b->data);
@@ -608,10 +613,10 @@ static void caml_ba_finalize(value v)
 #endif
       if (-- b->proxy->refcount == 0) {
 #if defined(__FreeBSD__) && defined(_KERNEL)
-        if (--u[0] == 0) {
-	    contigfree(b->proxy->data, b->proxy->size, M_MIRAGE);
-	    __free(u);
-	}
+        if (--(meta->bm_refcnt) == 0) {
+            contigfree(b->proxy->data, b->proxy->size, M_MIRAGE);
+            __free(meta);
+        }
 #else
         __free(b->proxy->data);
 #endif
@@ -624,7 +629,7 @@ static void caml_ba_finalize(value v)
     caml_failwith("CAML_BA_MAPPED_FILE: unsupported");
     break;
   case CAML_BA_MBUF:
-    m_free((struct mbuf *) b->data2);
+    m_free(meta->bm_mbuf);
     break;
 #else
   case CAML_BA_MAPPED_FILE:

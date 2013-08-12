@@ -76,7 +76,7 @@ struct caml_ba_proxy {
 struct caml_ba_array {
   void * data;                /* Pointer to raw data */
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  void * data2;               /* Interoperating with mbuf(9), or NULL */
+  void * data2;               /* Interoperating with FreeBSD, or NULL */
 #endif
   intnat num_dims;            /* Number of dimensions */
   intnat flags;  /* Kind of element array + memory layout + allocation status */
@@ -89,9 +89,22 @@ struct caml_ba_array {
 #endif
 };
 
+#if defined(__FreeBSD__) && defined(_KERNEL)
+#define		BM_MBUF		0x70
+#define		BM_IOPAGE	0x71
+
+struct caml_ba_meta {
+  char		bm_type;
+  int		bm_size;
+  int		bm_refcnt;
+  struct mbuf	*bm_mbuf;
+};
+#endif
+
 #define Caml_ba_array_val(v) ((struct caml_ba_array *) Data_custom_val(v))
 
 #define Caml_ba_data_val(v) (Caml_ba_array_val(v)->data)
+#define Caml_ba_mbuf_val(v) (Caml_ba_array_val(v)->data2)
 
 #if defined(IN_OCAML_BIGARRAY)
 #define CAMLBAextern CAMLexport
