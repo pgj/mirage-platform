@@ -15,6 +15,7 @@
 
 #if defined(__FreeBSD__) && defined(_KERNEL)
 #include <sys/limits.h>
+#include <fixmath.h>
 #else
 #include <limits.h>
 #endif
@@ -342,61 +343,7 @@ static void sweep_slice (intnat work)
  */
 intnat caml_major_collection_slice (intnat howmuch)
 {
-#if defined(__FreeBSD__) && defined(_KERNEL)
-  uintnat p, dp;
-  intnat computed_work;
-
-  if (caml_gc_phase == Phase_idle) start_cycle ();
-
-  p = (caml_allocated_words * 3 * (100 + caml_percent_free) * P_RATIO)
-      / Wsize_bsize (caml_stat_heap_size) / caml_percent_free / 2;
-  if (caml_dependent_size > 0){
-    dp = (caml_dependent_allocated * (100 + caml_percent_free) * P_RATIO)
-         / caml_dependent_size / caml_percent_free;
-  }else{
-    dp = 0;
-  }
-  if (p < dp) p = dp;
-  if (p < caml_extra_heap_resources) p = caml_extra_heap_resources;
-
-  caml_gc_message (0x40, "allocated_words = %"
-                         ARCH_INTNAT_PRINTF_FORMAT "u\n",
-                   caml_allocated_words);
-  caml_gc_message (0x40, "extra_heap_resources = %"
-                         ARCH_INTNAT_PRINTF_FORMAT "uu\n",
-                   (caml_extra_heap_resources * 1000000) / P_RATIO);
-  caml_gc_message (0x40, "amount of work to do = %"
-                         ARCH_INTNAT_PRINTF_FORMAT "uu\n",
-                   (p * 1000000) / P_RATIO);
-
-  if (caml_gc_phase == Phase_mark){
-    computed_work = (intnat) (p * Wsize_bsize (caml_stat_heap_size) * 250
-                              / (100 + caml_percent_free)) / P_RATIO;
-  }else{
-    computed_work = (intnat) (p * Wsize_bsize (caml_stat_heap_size) * 5 / 3) / P_RATIO;
-  }
-  caml_gc_message (0x40, "ordered work = %ld words\n", howmuch);
-  caml_gc_message (0x40, "computed work = %ld words\n", computed_work);
-  if (howmuch == 0) howmuch = computed_work;
-  if (caml_gc_phase == Phase_mark){
-    mark_slice (howmuch);
-    caml_gc_message (0x02, "!", 0);
-  }else{
-    Assert (caml_gc_phase == Phase_sweep);
-    sweep_slice (howmuch);
-    caml_gc_message (0x02, "$", 0);
-  }
-
-  if (caml_gc_phase == Phase_idle) caml_compact_heap_maybe ();
-
-  caml_stat_major_words = fixpt_add(caml_stat_major_words,
-    fixpt_from_int(caml_allocated_words));
-  caml_allocated_words = 0;
-  caml_dependent_allocated = 0;
-  caml_extra_heap_resources = 0;
-  return computed_work;
-#else
-  double p, dp;
+  __double p, dp;
   intnat computed_work;
   /*
      Free memory at the start of the GC cycle (garbage + free list) (assumed):
@@ -444,6 +391,18 @@ intnat caml_major_collection_slice (intnat howmuch)
 
   if (caml_gc_phase == Phase_idle) start_cycle ();
 
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  p = fixpt_div(fixpt_div(fixpt_div(fixpt_from_int(caml_allocated_words * 3 * (100 + caml_percent_free)),
+    fixpt_from_int(Wsize_bsize(caml_stat_heap_size))),
+    fixpt_from_int(caml_percent_free)), fixpt_from_int(2));
+  if (caml_dependent_size > 0) {
+    dp = fixpt_div(fixpt_div(fixpt_from_int(caml_dependent_allocated * (100 + caml_percent_free)),
+      fixpt_from_int(caml_dependent_size)), fixpt_from_int(caml_percent_free));
+  }
+  else {
+    dp = 0;
+  }
+#else
   p = (double) caml_allocated_words * 3.0 * (100 + caml_percent_free)
       / Wsize_bsize (caml_stat_heap_size) / caml_percent_free / 2.0;
   if (caml_dependent_size > 0){
@@ -452,6 +411,7 @@ intnat caml_major_collection_slice (intnat howmuch)
   }else{
     dp = 0.0;
   }
+#endif
   if (p < dp) p = dp;
   if (p < caml_extra_heap_resources) p = caml_extra_heap_resources;
 
@@ -460,16 +420,36 @@ intnat caml_major_collection_slice (intnat howmuch)
                    caml_allocated_words);
   caml_gc_message (0x40, "extra_heap_resources = %"
                          ARCH_INTNAT_PRINTF_FORMAT "uu\n",
+#if defined(__FreeBSD__) && defined(_KERNEL)
+                   fixpt_to_int(fixpt_mul(caml_extra_heap_resources, fixpt_from_int(1000000))));
+#else
                    (uintnat) (caml_extra_heap_resources * 1000000));
+#endif
   caml_gc_message (0x40, "amount of work to do = %"
                          ARCH_INTNAT_PRINTF_FORMAT "uu\n",
+#if defined(__FreeBSD__) && defined(_KERNEL)
+                   fixpt_to_int(fixpt_mul(p, fixpt_from_int(1000000))));
+#else
                    (uintnat) (p * 1000000));
+#endif
 
   if (caml_gc_phase == Phase_mark){
+#if defined(__FreeBSD__) && defined(_KERNEL)
+    computed_work = fixpt_to_int(fixpt_div(fixpt_mul(p,
+      fixpt_from_int(Wsize_bsize(caml_stat_heap_size) * 250)),
+      fixpt_from_int(100 + caml_percent_free)));
+#else
     computed_work = (intnat) (p * Wsize_bsize (caml_stat_heap_size) * 250
                               / (100 + caml_percent_free));
+#endif
   }else{
+#if defined(__FreeBSD__) && defined(_KERNEL)
+    computed_work = fixpt_to_int(fixpt_div(fixpt_mul(p,
+      fixpt_from_int(Wsize_bsize(caml_stat_heap_size) * 5)),
+      fixpt_from_int(3)));
+#else
     computed_work = (intnat) (p * Wsize_bsize (caml_stat_heap_size) * 5 / 3);
+#endif
   }
   caml_gc_message (0x40, "ordered work = %ld words\n", howmuch);
   caml_gc_message (0x40, "computed work = %ld words\n", computed_work);
@@ -485,12 +465,20 @@ intnat caml_major_collection_slice (intnat howmuch)
 
   if (caml_gc_phase == Phase_idle) caml_compact_heap_maybe ();
 
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  caml_stat_major_words = fixpt_add(caml_stat_major_words,
+    fixpt_from_int(caml_allocated_words));
+#else
   caml_stat_major_words += caml_allocated_words;
+#endif
   caml_allocated_words = 0;
   caml_dependent_allocated = 0;
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  caml_extra_heap_resources = 0;
+#else
   caml_extra_heap_resources = 0.0;
-  return computed_work;
 #endif
+  return computed_work;
 }
 
 /* The minor heap must be empty when this function is called;

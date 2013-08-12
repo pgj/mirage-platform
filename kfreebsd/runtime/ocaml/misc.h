@@ -27,8 +27,6 @@
 #if defined(__FreeBSD__) && defined(_KERNEL)
 #define OCAML_OS_TYPE   "kFreeBSD"
 
-#define P_RATIO         1000000000
-
 #include <sys/types.h>
 #include <sys/libkern.h>
 #include <sys/malloc.h>

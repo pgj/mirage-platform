@@ -16,6 +16,7 @@
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
 #include <stdlib.h>
 #include <string.h>
+#include <fixmath.h>
 #endif
 #include "fail.h"
 #include "freelist.h"
@@ -487,22 +488,21 @@ CAMLexport void caml_free_dependent_memory (mlsize_t nbytes)
 */
 CAMLexport void caml_adjust_gc_speed (mlsize_t res, mlsize_t max)
 {
-#if defined(__FreeBSD__) && defined(_KERNEL)
   if (max == 0) max = 1;
   if (res > max) res = max;
-  caml_extra_heap_resources += (res * P_RATIO) / max;
-  if (caml_extra_heap_resources > P_RATIO){
-    caml_extra_heap_resources = P_RATIO;
-    caml_urge_major_slice ();
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  caml_extra_heap_resources = fixpt_add(caml_extra_heap_resources,
+    fixpt_div(fixpt_from_int(res), fixpt_from_int(max)));
+  if (caml_extra_heap_resources > fixpt_one) {
+    caml_extra_heap_resources = fixpt_one;
+    caml_urge_major_slice();
   }
-  if (caml_extra_heap_resources
-           > Wsize_bsize (caml_minor_heap_size * P_RATIO) / 2
-             / Wsize_bsize (caml_stat_heap_size)) {
-    caml_urge_major_slice ();
+  if (caml_extra_heap_resources >
+    fixpt_div(fixpt_div(fixpt_from_int(Wsize_bsize(caml_minor_heap_size)),
+    fixpt_from_int(2)), fixpt_from_int(Wsize_bsize(caml_stat_heap_size)))) {
+    caml_urge_major_slice();
   }
 #else
-  if (max == 0) max = 1;
-  if (res > max) res = max;
   caml_extra_heap_resources += (double) res / (double) max;
   if (caml_extra_heap_resources > 1.0){
     caml_extra_heap_resources = 1.0;
