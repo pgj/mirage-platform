@@ -1,5 +1,5 @@
 (*-
- * Copyright (c) 2012 Gabor Pali
+ * Copyright (c) 2012, 2013 Gabor Pali
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,8 +45,9 @@ let id t = t.backend
 external get_vifs: unit -> id list = "caml_get_vifs"
 external plug_vif: id -> bool * int * string = "caml_plug_vif"
 external unplug_vif: id -> unit = "caml_unplug_vif"
-external get_mbufs : int -> Cstruct.t list = "caml_get_mbufs"
-external put_mbufs : int -> Cstruct.t list -> unit = "caml_put_mbufs"
+external get_mbufs     : int -> Cstruct.t list = "caml_get_mbufs"
+external get_next_mbuf : int -> Cstruct.t option = "caml_get_next_mbuf"
+external put_mbufs     : int -> Cstruct.t list -> unit = "caml_put_mbufs"
 
 let devices : (id, t) Hashtbl.t = Hashtbl.create 1
 
@@ -90,23 +91,29 @@ let writev ifc bufs =
 
 let write ifc buf = writev ifc [buf]
 
-let rx_poll ifc fn =
-  let mbufs = get_mbufs ifc.backend_id in
-  Lwt_list.iter_s (fun m ->
-    try_lwt fn m
-    with exn ->
-      return (printf "Exception on receive: %s\n%!" (Printexc.to_string exn)))
-  mbufs
+let rec input ifc =
+  let next = get_next_mbuf ifc.backend_id in
+  match next with
+  | None       ->
+    Time.yield () >>
+    input ifc
+  | Some frame -> return frame
 
-let listen ifc fn =
-  let rec poll_t () =
-    rx_poll ifc fn   >>
-    Time.sleep 1.000 >>
-    poll_t ()
-  in
+let rec listen ifc fn =
   match ifc.active with
-    | true  -> poll_t ()
-    | false -> return ()
+  | true ->
+    begin
+      try_lwt
+        lwt frame = input ifc in
+        fn frame;
+        Time.yield () >>
+        listen ifc fn
+      with exn ->
+        return (printf "EXN: %s, bt: %s\n%!"
+          (Printexc.to_string exn) (Printexc.get_backtrace ()));
+        listen ifc fn
+    end;
+  | false -> return ()
 
 let mac ifc =
   let s = String.create 6 in

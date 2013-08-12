@@ -84,6 +84,7 @@ CAMLprim value caml_get_vifs(value v_unit);
 CAMLprim value caml_plug_vif(value id);
 CAMLprim value caml_unplug_vif(value id);
 CAMLprim value caml_get_mbufs(value id);
+CAMLprim value caml_get_next_mbuf(value id);
 CAMLprim value caml_put_mbufs(value id, value bufs);
 
 void netif_ether_input(struct ifnet *ifp, struct mbuf **mp);
@@ -399,6 +400,58 @@ caml_get_mbufs(value id)
 #endif
 
 	CAMLreturn(result);
+}
+
+CAMLprim value
+caml_get_next_mbuf(value id)
+{
+	CAMLparam1(id);
+	CAMLlocal1(result);
+	struct plugged_if *pip;
+	struct mbuf_entry *ep;
+	struct mbuf *m;
+
+	pip = find_pi_by_index(Int_val(id));
+
+	if (pip == NULL)
+		caml_failwith("No interface");
+
+#ifdef NETIF_DEBUG
+	printf("caml_get_next_mbufs(): [%s]\n", pip->pi_xname);
+#endif
+
+	mtx_lock(&pip->pi_rx_lock);
+	ep = LIST_FIRST(&pip->pi_rx_head);
+	mtx_unlock(&pip->pi_rx_lock);
+
+	/* No frame today. */
+	if (ep == NULL)
+		CAMLreturn(Val_none);
+
+	m = ep->me_m;
+
+	mtx_lock(&pip->pi_rx_lock);
+	LIST_REMOVE(ep, me_next);
+#ifdef NETIF_DEBUG
+	pip->pi_rx_qlen--;
+#endif
+	mtx_unlock(&pip->pi_rx_lock);
+
+	free(ep, M_MIRAGE);
+
+	result = caml_alloc(3, 0);
+	Store_field(result, 0, caml_ba_alloc_dims(CAML_BA_UINT8
+	    | CAML_BA_C_LAYOUT | CAML_BA_MBUF, 1, (void *) m,
+	    (long) m->m_len));
+	Store_field(result, 1, Val_int(0));
+	Store_field(result, 2, Val_int(m->m_len));
+
+#ifdef NETIF_DEBUG
+	printf("Frame extracted of size %d (data=%p, nextpkt=%p).\n",
+	    m->m_len, m->m_data, m->m_nextpkt);
+#endif
+
+	CAMLreturn(Val_some(result));
 }
 
 int

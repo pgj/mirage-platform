@@ -318,6 +318,11 @@ CAMLextern header_t caml_atom_table[];
 #define Val_emptylist Val_int(0)
 #define Tag_cons 0
 
+/* Options types */
+#define Val_none Val_int(0)
+#define Some_val(v) Field(v,0)
+CAMLextern value Val_some(value v);
+
 /* The table of global identifiers */
 
 extern value caml_global_data;

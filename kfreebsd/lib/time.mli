@@ -17,6 +17,7 @@
 val restart_threads: (unit -> float) -> unit
 val select_next : (unit -> float) -> float option
 val sleep : float -> unit Lwt.t
+val yield : unit -> unit Lwt.t
 
 exception Timeout
 val with_timeout : float -> (unit -> 'a Lwt.t) -> 'a Lwt.t
