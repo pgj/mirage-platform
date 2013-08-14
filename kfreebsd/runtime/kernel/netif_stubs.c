@@ -49,7 +49,6 @@
 #include "caml/fail.h"
 #include "caml/bigarray.h"
 
-const u_char lladdr_prefix[4]           = { 0x02, 0xAD, 0xBE, 0xEF };
 const u_char lladdr_all[ETHER_ADDR_LEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 struct mbuf_entry {
@@ -61,7 +60,6 @@ struct plugged_if {
 	TAILQ_ENTRY(plugged_if)	pi_next;
 	struct ifnet		*pi_ifp;
 	u_short	pi_index;
-	u_short	pi_llindex;
 	int	pi_flags;
 	u_char	pi_lladdr[ETHER_ADDR_LEN];	/* Real MAC address */
 	u_char	pi_lladdr_v[ETHER_ADDR_LEN];	/* Virtual MAC address */
@@ -81,7 +79,7 @@ int plugged = 0;
 
 /* Currently only Ethernet interfaces are returned. */
 CAMLprim value caml_get_vifs(value v_unit);
-CAMLprim value caml_plug_vif(value id);
+CAMLprim value caml_plug_vif(value id, value index, value mac);
 CAMLprim value caml_unplug_vif(value id);
 CAMLprim value caml_get_mbufs(value id);
 CAMLprim value caml_get_next_mbuf(value id);
@@ -147,15 +145,13 @@ caml_get_vifs(value v_unit)
 }
 
 CAMLprim value
-caml_plug_vif(value id)
+caml_plug_vif(value id, value index, value mac)
 {
-	CAMLparam1(id);
-	CAMLlocal1(result);
+	CAMLparam3(id, index, mac);
 	struct ifnet *ifp;
 	struct sockaddr_dl *sdl;
 	struct plugged_if *pip;
-	char	lladdr_str[32];
-	u_char	lladdr[ETHER_ADDR_LEN];
+	char*	lladdr;
 	int found;
 #ifdef NETIF_DEBUG
 	u_char	*p1, *p2;
@@ -175,7 +171,6 @@ caml_plug_vif(value id)
 		/* "Enable" the fake NetGraph node. */
 		IFP2AC(ifp)->ac_netgraph = (void *) 1;
 		pip->pi_ifp   = ifp;
-		pip->pi_index = ifp->if_index;
 		pip->pi_flags = ifp->if_flags;
 		bcopy(ifp->if_xname, pip->pi_xname, IFNAMSIZ);
 
@@ -196,15 +191,10 @@ caml_plug_vif(value id)
 		caml_failwith("Invalid interface");
 	}
 
-	bcopy(lladdr_prefix, lladdr, sizeof(lladdr_prefix));
-	pip->pi_llindex = plugged + 1;
-	lladdr[4] = pip->pi_llindex >> 8;
-	lladdr[5] = pip->pi_llindex & 0xFF;
+	pip->pi_index = Int_val(index);
 
-	sprintf(lladdr_str, "%02x:%02x:%02x:%02x:%02x:%02x", lladdr[0],
-	    lladdr[1], lladdr[2], lladdr[3], lladdr[4], lladdr[5]);
-
-	bcopy(lladdr, pip->pi_lladdr_v, sizeof(lladdr));
+	lladdr = String_val(mac);
+	bcopy(lladdr, pip->pi_lladdr_v, ETHER_ADDR_LEN);
 
 	mtx_init(&pip->pi_rx_lock, "plugged_if_rx", NULL, MTX_DEF);
 	LIST_INIT(&pip->pi_rx_head);
@@ -225,11 +215,7 @@ caml_plug_vif(value id)
 	    p2[0], p2[1], p2[2], p2[3], p2[4], p2[5]);
 #endif
 
-	result = caml_alloc(3, 0);
-	Store_field(result, 0, Val_bool(pip->pi_flags & IFF_UP));
-	Store_field(result, 1, Val_int(pip->pi_llindex));
-	Store_field(result, 2, caml_copy_string(lladdr_str));
-	CAMLreturn(result);
+	CAMLreturn(Val_bool(pip->pi_flags & IFF_UP));
 }
 
 CAMLprim value

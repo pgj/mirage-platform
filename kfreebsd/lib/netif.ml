@@ -31,7 +31,7 @@ open Printf
 type t = {
     backend_id: int;
     backend: string;
-    mac: string;
+    mac: Macaddr.t;
     mutable active: bool;
 }
 
@@ -43,13 +43,14 @@ let string_of_id i = i
 let id t = t.backend
 
 external get_vifs: unit -> id list = "caml_get_vifs"
-external plug_vif: id -> bool * int * string = "caml_plug_vif"
+external plug_vif: id -> int -> string -> bool = "caml_plug_vif"
 external unplug_vif: id -> unit = "caml_unplug_vif"
 external get_mbufs     : int -> Cstruct.t list = "caml_get_mbufs"
 external get_next_mbuf : int -> Cstruct.t option = "caml_get_next_mbuf"
 external put_mbufs     : int -> Cstruct.t list -> unit = "caml_put_mbufs"
 
 let devices : (id, t) Hashtbl.t = Hashtbl.create 1
+let did = ref 1
 
 let enumerate () =
   let vifs = get_vifs () in
@@ -61,14 +62,27 @@ let enumerate () =
   in
   read_vif vifs []
 
+let mac_generator i =
+  let t = Array.make 6 0x00 in
+  t.(0) <- 0xDE;
+  t.(1) <- 0xAD;
+  t.(2) <- 0xBE;
+  t.(3) <- 0xEF;
+  t.(4) <- (i lsr 8) land 0xFF;
+  t.(5) <- i land 0xFF;
+  t
+
 let plug id =
   try
     return (Hashtbl.find devices id)
   with Not_found ->
     let backend = id in
-    let active,backend_id,mac = plug_vif id in
+    let backend_id = !did in
+    let mac = Macaddr.make_local (fun i -> (mac_generator backend_id).(i)) in
+    let active = plug_vif id backend_id (Macaddr.to_bytes mac) in
     let t = { backend_id; backend; mac; active } in
     Hashtbl.add devices id t;
+    did := (!did + 1) mod (1 lsl 16);
     return t
 
 let unplug id =
@@ -115,20 +129,9 @@ let rec listen ifc fn =
     end;
   | false -> return ()
 
-let mac ifc =
-  let s = String.create 6 in
-  Scanf.sscanf ifc.mac "%02x:%02x:%02x:%02x:%02x:%02x"
-    (fun a b c d e f ->
-      s.[0] <- Char.chr a;
-      s.[1] <- Char.chr b;
-      s.[2] <- Char.chr c;
-      s.[3] <- Char.chr d;
-      s.[4] <- Char.chr e;
-      s.[5] <- Char.chr f;
-    );
-  s
-
 let ethid ifc = string_of_int ifc.backend_id
+
+let mac ifc = ifc.mac
 
 let get_writebuf ifc =
   let page = Io_page.get 1 in

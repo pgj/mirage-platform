@@ -32,7 +32,7 @@ val get_writebuf : t -> Cstruct.t Lwt.t
 (** [id if] is the id of interface [if]. *)
 val id           : t -> id
 (** [mac if] is the MAC address of [if]. *)
-val mac          : t -> string
+val mac          : t -> Macaddr.t
 
 (** [create ()] is a thread that returns a list of initialized network
     interfaces. *)
