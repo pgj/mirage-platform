@@ -431,13 +431,21 @@ caml_get_next_mbuf(value id)
 	m = ep->me_m;
 
 	mtx_lock(&pip->pi_rx_lock);
-	LIST_REMOVE(ep, me_next);
+	if (m->m_next == NULL && m->m_nextpkt == NULL) {
+		LIST_REMOVE(ep, me_next);
 #ifdef NETIF_DEBUG
-	pip->pi_rx_qlen--;
+		pip->pi_rx_qlen--;
 #endif
+	}
+	else
+	if (m->m_next != NULL)
+		ep->me_m = m->m_next;
+	else
+		ep->me_m = m->m_nextpkt;
 	mtx_unlock(&pip->pi_rx_lock);
 
-	free(ep, M_MIRAGE);
+	if (m->m_next == NULL && m->m_nextpkt == NULL)
+		free(ep, M_MIRAGE);
 
 	result = caml_alloc(3, 0);
 	Store_field(result, 0, caml_ba_alloc_dims(CAML_BA_UINT8
@@ -447,8 +455,8 @@ caml_get_next_mbuf(value id)
 	Store_field(result, 2, Val_int(m->m_len));
 
 #ifdef NETIF_DEBUG
-	printf("Frame extracted of size %d (data=%p, nextpkt=%p).\n",
-	    m->m_len, m->m_data, m->m_nextpkt);
+	printf("Frame extracted of size %d (data=%p, next=%p, nextpkt=%p).\n",
+	    m->m_len, m->m_data, m->m_next, m->m_nextpkt);
 #endif
 
 	CAMLreturn(Val_some(result));
