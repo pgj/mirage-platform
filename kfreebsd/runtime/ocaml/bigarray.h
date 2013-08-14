@@ -60,8 +60,9 @@ enum caml_ba_managed {
   CAML_BA_MANAGED = 0x200,     /* Data is allocated by OCaml */
   CAML_BA_MAPPED_FILE = 0x400, /* Data is a memory mapped file */
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  CAML_BA_MBUF = 0x800,        /* Data is a FreeBSD mbuf(9) */
-  CAML_BA_MANAGED_MASK = 0xE00
+  CAML_BA_FBSD_IOPAGE = 0x800,  /* Data is a FreeBSD physical page */
+  CAML_BA_FBSD_MBUF   = 0x1000, /* Data is a FreeBSD mbuf(9) */
+  CAML_BA_MANAGED_MASK = 0x1E00
 #else
   CAML_BA_MANAGED_MASK = 0x600 /* Mask for "managed" bits in flags field */
 #endif

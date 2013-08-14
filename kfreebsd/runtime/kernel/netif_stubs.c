@@ -374,7 +374,7 @@ caml_get_mbufs(value id)
 				t = caml_alloc(3, 0);
 				Store_field(t, 0,
 				    caml_ba_alloc_dims(CAML_BA_UINT8
-				    | CAML_BA_C_LAYOUT | CAML_BA_MBUF, 1,
+				    | CAML_BA_C_LAYOUT | CAML_BA_FBSD_MBUF, 1,
 				    (void *) n, (long) n->m_len));
 				Store_field(t, 1, Val_int(0));
 				Store_field(t, 2, Val_int(n->m_len));
@@ -449,7 +449,7 @@ caml_get_next_mbuf(value id)
 
 	result = caml_alloc(3, 0);
 	Store_field(result, 0, caml_ba_alloc_dims(CAML_BA_UINT8
-	    | CAML_BA_C_LAYOUT | CAML_BA_MBUF, 1, (void *) m,
+	    | CAML_BA_C_LAYOUT | CAML_BA_FBSD_MBUF, 1, (void *) m,
 	    (long) m->m_len));
 	Store_field(result, 1, Val_int(0));
 	Store_field(result, 2, Val_int(m->m_len));
@@ -485,15 +485,16 @@ netif_mbuf_free(void *p1, void *p2)
 	printf("netif_mbuf_free: %p, %p\n", p1, p2);
 #endif
 
+	if (--(meta->bm_refcnt) > 0)
+		return;
+
 	switch (meta->bm_type) {
 		case BM_IOPAGE:
-			if (--(meta->bm_refcnt) > 0)
-				return;
 			contigfree(p2, meta->bm_size, M_MIRAGE);
 			break;
 
 		case BM_MBUF:
-			m_free(meta->bm_mbuf);
+			__free(p2);
 			break;
 
 		default:

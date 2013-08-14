@@ -20,7 +20,6 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/mbuf.h>
-#include <sys/sdt.h>
 #else
 #include <stddef.h>
 #include <stdarg.h>
@@ -42,14 +41,6 @@
 
 extern void caml_ba_unmap_file(void * addr, uintnat len);
                                           /* from mmap_xxx.c */
-
-#if defined(__FreeBSD__) && defined(_KERNEL)
-SDT_PROVIDER_DECLARE(mirage);
-
-SDT_PROBE_DEFINE(mirage, kernel, io_page, refcount, refcount);
-SDT_PROBE_ARGTYPE(mirage, kernel, io_page, refcount, 0, "void *");
-SDT_PROBE_ARGTYPE(mirage, kernel, io_page, refcount, 1, "int");
-#endif
 
 CAMLprim value caml_ba_create(value vkind, value vlayout, value vdim);
 CAMLprim value caml_ba_get_N(value vb, value * vind, int nind);
@@ -230,22 +221,25 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   if (b->data2 == NULL) caml_raise_out_of_memory();
   meta = (struct caml_ba_meta *) b->data2;
 
-  if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_MBUF) {
+  for (meta->bm_size = 0, i = 0; i < num_dims; i++)
+    meta->bm_size += dim[i];
+  meta->bm_refcnt = 1;
+
+  if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_MBUF) {
     meta->bm_type = BM_MBUF;
     meta->bm_mbuf = data;
     b->data = mtod((struct mbuf *) meta->bm_mbuf, void *);
   }
-  else {
+  else
+  if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_IOPAGE) {
     meta->bm_type = BM_IOPAGE;
     meta->bm_mbuf = NULL;
     b->data = data;
-    for (meta->bm_size = 0, i = 0; i < num_dims; i++)
-      meta->bm_size += dim[i];
-    meta->bm_refcnt = 1;
   }
-#else
-  b->data = data;
+  else
 #endif
+  b->data = data;
+
   b->num_dims = num_dims;
   b->flags = flags;
   b->proxy = NULL;
@@ -590,46 +584,40 @@ static void caml_ba_finalize(value v)
   struct caml_ba_meta *meta;
 #endif
 
-#if defined(__FreeBSD__) && defined(_KERNEL)
-  meta = (struct caml_ba_meta *) b->data2;
-#endif
-
   switch (b->flags & CAML_BA_MANAGED_MASK) {
   case CAML_BA_EXTERNAL:
     break;
   case CAML_BA_MANAGED:
     if (b->proxy == NULL) {
-#if defined(__FreeBSD__) && defined(_KERNEL)
-      if (--(meta->bm_refcnt) == 0) {
-          contigfree(b->data, meta->bm_size, M_MIRAGE);
-          __free(meta);
-      }
-#endif
       __free(b->data);
     } else {
-#if defined(__FreeBSD__) && defined(_KERNEL)
-      SDT_PROBE(mirage, kernel, io_page, refcount, b->proxy->data,
-          (int) b->proxy->refcount, 0, 0, 0);
-#endif
       if (-- b->proxy->refcount == 0) {
-#if defined(__FreeBSD__) && defined(_KERNEL)
-        if (--(meta->bm_refcnt) == 0) {
-            contigfree(b->proxy->data, b->proxy->size, M_MIRAGE);
-            __free(meta);
-        }
-#else
         __free(b->proxy->data);
-#endif
         caml_stat_free(b->proxy);
       }
     }
     break;
 #if defined(__FreeBSD__) && defined(_KERNEL)
+  case CAML_BA_FBSD_MBUF:
+  case CAML_BA_FBSD_IOPAGE:
+    meta = (struct caml_ba_meta *) b->data2;
+
+    if (--(meta->bm_refcnt) > 0)
+      break;
+
+    switch (meta->bm_type) {
+      case BM_IOPAGE:
+        contigfree(b->data, meta->bm_size, M_MIRAGE);
+        __free(meta);
+        break;
+      case BM_MBUF:
+        m_free(meta->bm_mbuf);
+        break;
+    }
+
+    break;
   case CAML_BA_MAPPED_FILE:
     caml_failwith("CAML_BA_MAPPED_FILE: unsupported");
-    break;
-  case CAML_BA_MBUF:
-    m_free(meta->bm_mbuf);
     break;
 #else
   case CAML_BA_MAPPED_FILE:
@@ -987,20 +975,8 @@ static void caml_ba_update_proxy(struct caml_ba_array * b1,
                                  struct caml_ba_array * b2)
 {
   struct caml_ba_proxy * proxy;
-#if defined(__FreeBSD__) && defined(_KERNEL)
-  u_int *u;
-  int i;
-#endif
   /* Nothing to do for un-managed arrays */
   if ((b1->flags & CAML_BA_MANAGED_MASK) == CAML_BA_EXTERNAL) return;
-#if defined(__FreeBSD__) && defined(_KERNEL)
-  /* Update size information */
-  if ((b2->flags & CAML_BA_MANAGED_MASK) != CAML_BA_MBUF) {
-    u = (u_int *) b2->data2;
-    for (u[1] = 0, i = 0; i < b2->num_dims; i++)
-      u[1] += b2->dim[i];
-  }
-#endif
   if (b1->proxy != NULL) {
     /* If b1 is already a proxy for a larger array, increment refcount of
        proxy */

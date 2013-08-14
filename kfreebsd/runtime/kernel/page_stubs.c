@@ -54,6 +54,6 @@ caml_alloc_pages(value n_pages)
 	if (block == 0)
 		caml_failwith("contigmalloc");
 	result = caml_ba_alloc_dims(CAML_BA_UINT8 | CAML_BA_C_LAYOUT
-	    | CAML_BA_MANAGED, 1, (void *) block, (long) PAGE_SIZE * len);
+	    | CAML_BA_FBSD_IOPAGE, 1, (void *) block, (long) PAGE_SIZE * len);
 	CAMLreturn(result);
 }
