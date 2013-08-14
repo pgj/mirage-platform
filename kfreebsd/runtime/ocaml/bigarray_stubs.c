@@ -225,16 +225,20 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
     meta->bm_size += dim[i];
   meta->bm_refcnt = 1;
 
+  stat_bigarray_allocated += meta->bm_size + sizeof(meta);
+
   if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_MBUF) {
     meta->bm_type = BM_MBUF;
     meta->bm_mbuf = data;
     b->data = mtod((struct mbuf *) meta->bm_mbuf, void *);
+    stat_bigarray_mbuf += meta->bm_size + sizeof(meta);
   }
   else
   if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_IOPAGE) {
     meta->bm_type = BM_IOPAGE;
     meta->bm_mbuf = NULL;
     b->data = data;
+    stat_bigarray_iopage += meta->bm_size + sizeof(meta);
   }
   else
 #endif
@@ -607,6 +611,8 @@ static void caml_ba_finalize(value v)
 
     switch (meta->bm_type) {
       case BM_IOPAGE:
+        stat_bigarray_allocated -= meta->bm_size + sizeof(meta);
+        stat_bigarray_iopage -= meta->bm_size + sizeof(meta);
         contigfree(b->data, meta->bm_size, M_MIRAGE);
         __free(meta);
         break;

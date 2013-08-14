@@ -100,6 +100,10 @@ struct caml_ba_meta {
   int		bm_refcnt;
   struct mbuf	*bm_mbuf;
 };
+
+extern int stat_bigarray_allocated;
+extern int stat_bigarray_iopage;
+extern int stat_bigarray_mbuf;
 #endif
 
 #define Caml_ba_array_val(v) ((struct caml_ba_array *) Data_custom_val(v))

@@ -182,6 +182,19 @@ SYSCTL_PROC(_kern_mirage, OID_AUTO, run, CTLTYPE_INT | CTLFLAG_RW, 0,
 SYSCTL_STRING(_kern_mirage, OID_AUTO, rtparams, CTLFLAG_RW, &mir_rtparams,
     sizeof(mir_rtparams), "parameters for the run-time");
 
+int stat_bigarray_allocated = 0;
+int stat_bigarray_mbuf = 0;
+int stat_bigarray_iopage = 0;
+
+SYSCTL_INT(_kern_mirage, OID_AUTO, bigarray_allocated, CTLFLAG_RD,
+    &stat_bigarray_allocated, 0, "Bytes allocated by OCaml Bigarrays.");
+
+SYSCTL_INT(_kern_mirage, OID_AUTO, bigarray_mbuf, CTLFLAG_RD,
+    &stat_bigarray_mbuf, 0, "Bytes for Bigarrays as mbuf(9)s.");
+
+SYSCTL_INT(_kern_mirage, OID_AUTO, bigarray_iopage, CTLFLAG_RD,
+    &stat_bigarray_iopage, 0, "Bytes for Bigarrays as IO pages.");
+
 static int
 event_handler(struct module *module, int event, void *arg) {
 	int retval;
