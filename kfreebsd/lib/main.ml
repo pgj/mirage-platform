@@ -68,7 +68,12 @@ let run t =
        prerr_endline msg;
       true)
   in
-  ignore (Callback.register "OS.Main.run" aux)
+  let finalize () =
+    Lwt.cancel t;
+    Gc.compact ()
+  in
+  ignore (Callback.register "OS.Main.run" aux);
+  ignore (Callback.register "OS.Main.finalize" finalize)
 
 let () = at_exit (fun () -> run (call_hooks exit_hooks))
 let at_enter f = ignore (Lwt_sequence.add_l f enter_hooks)
