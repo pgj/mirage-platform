@@ -632,6 +632,7 @@ netif_cleanup(void)
 {
 	struct plugged_if *p1, *p2;
 	struct ifnet *ifp;
+	struct mbuf_entry *e1, *e2;
 
 	p1 = TAILQ_FIRST(&pihead);
 	while (p1 != NULL) {
@@ -640,6 +641,19 @@ netif_cleanup(void)
 		IFNET_WLOCK();
 		IFP2AC(ifp)->ac_netgraph = (void *) 0;
 		IFNET_WUNLOCK();
+		mtx_lock(&p1->pi_rx_lock);
+		e1 = LIST_FIRST(&p1->pi_rx_head);
+		while (e1 != NULL) {
+			e2 = LIST_NEXT(e1, me_next);
+			m_free(e1->me_m);
+			free(e1, M_MIRAGE);
+			e1 = e2;
+		}
+#ifdef NETIF_DEBUG
+		p1->pi_rx_qlen = 0;
+#endif
+		LIST_INIT(&p1->pi_rx_head);
+		mtx_unlock(&p1->pi_rx_lock);
 		free(p1, M_MIRAGE);
 		plugged--;
 		p1 = p2;
