@@ -40,6 +40,7 @@ ocaml/signals_asm.o
 ocaml/signals.o
 ocaml/startup.o
 ocaml/str.o
+ocaml/strstubs.o
 ocaml/sys.o
 ocaml/weak.o
 ocaml/bigarray_stubs.o
