@@ -392,10 +392,11 @@ CAMLprim value
 caml_get_next_mbuf(value id)
 {
 	CAMLparam1(id);
-	CAMLlocal1(result);
+	CAMLlocal2(result, v);
 	struct plugged_if *pip;
 	struct mbuf_entry *ep;
 	struct mbuf *m;
+	long len;
 
 	pip = find_pi_by_index(Int_val(id));
 
@@ -417,32 +418,41 @@ caml_get_next_mbuf(value id)
 	m = ep->me_m;
 
 	mtx_lock(&pip->pi_rx_lock);
-	if (m->m_next == NULL && m->m_nextpkt == NULL) {
+	if (m->m_nextpkt == NULL) {
 		LIST_REMOVE(ep, me_next);
 #ifdef NETIF_DEBUG
 		pip->pi_rx_qlen--;
 #endif
 	}
 	else
-	if (m->m_next != NULL)
-		ep->me_m = m->m_next;
-	else
 		ep->me_m = m->m_nextpkt;
 	mtx_unlock(&pip->pi_rx_lock);
 
-	if (m->m_next == NULL && m->m_nextpkt == NULL)
+	if (m->m_nextpkt == NULL)
 		free(ep, M_MIRAGE);
 
+	/* Flatten packet if it is multi-part. */
+	if (m->m_next != NULL) {
+		len = m->m_pkthdr.len;
+		v = caml_ba_alloc_dims(CAML_BA_UINT8 | CAML_BA_C_LAYOUT, 1,
+		    NULL, len);
+		m_copydata(m, 0, len, Caml_ba_array_val(v)->data);
+		m_freem(m);
+	}
+	else {
+		len = m->m_len;
+		v = caml_ba_alloc_dims(CAML_BA_UINT8 | CAML_BA_C_LAYOUT |
+		    CAML_BA_FBSD_MBUF, 1, (void *) m, len);
+	}
+
 	result = caml_alloc(3, 0);
-	Store_field(result, 0, caml_ba_alloc_dims(CAML_BA_UINT8
-	    | CAML_BA_C_LAYOUT | CAML_BA_FBSD_MBUF, 1, (void *) m,
-	    (long) m->m_len));
+	Store_field(result, 0, v);
 	Store_field(result, 1, Val_int(0));
-	Store_field(result, 2, Val_int(m->m_len));
+	Store_field(result, 2, Val_int(len));
 
 #ifdef NETIF_DEBUG
-	printf("Frame extracted of size %d (data=%p, next=%p, nextpkt=%p).\n",
-	    m->m_len, m->m_data, m->m_next, m->m_nextpkt);
+	printf("Frame extracted of size %ld (data=%p).\n", len,
+	    Caml_ba_array_val(v)->data);
 #endif
 
 	CAMLreturn(Val_some(result));
