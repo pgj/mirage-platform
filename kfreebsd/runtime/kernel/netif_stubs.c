@@ -640,7 +640,7 @@ netif_cleanup(void)
 		e1 = LIST_FIRST(&p1->pi_rx_head);
 		while (e1 != NULL) {
 			e2 = LIST_NEXT(e1, me_next);
-			m_free(e1->me_m);
+			m_freem(e1->me_m);
 			free(e1, M_MIRAGE);
 			e1 = e2;
 		}
