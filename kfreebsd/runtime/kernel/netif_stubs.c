@@ -170,6 +170,8 @@ caml_plug_vif(value id, value index, value mac)
 
 		/* "Enable" the fake NetGraph node. */
 		IFP2AC(ifp)->ac_netgraph = (void *) 1;
+		/* Ensure that the MTU is enough for Mirage. */
+		ifp->if_mtu   = max(1514, ifp->if_mtu);
 		pip->pi_ifp   = ifp;
 		pip->pi_flags = ifp->if_flags;
 		bcopy(ifp->if_xname, pip->pi_xname, IFNAMSIZ);
