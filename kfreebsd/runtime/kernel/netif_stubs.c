@@ -618,7 +618,7 @@ caml_put_mbufs(value id, value bufs)
 	    eh->ether_dhost[3], eh->ether_dhost[4], eh->ether_dhost[5],
 	    ntohs(eh->ether_type),
 	    (real || bcast)  ? "[if_input]"  : "",
-	    (!real && bcast) ? "[if_output]" : "");
+	    (!real || bcast) ? "[if_output]" : "");
 #endif
 
 	/* Sending to the real Ethernet address. */
@@ -626,7 +626,7 @@ caml_put_mbufs(value id, value bufs)
 		(ifp->if_input)(ifp,
 		    bcast ? m_copypacket(pkt, M_DONTWAIT) : pkt);
 
-	if (!real && bcast)
+	if (!real || bcast)
 		(ifp->if_transmit)(ifp, pkt);
 
 	CAMLreturn(Val_unit);
