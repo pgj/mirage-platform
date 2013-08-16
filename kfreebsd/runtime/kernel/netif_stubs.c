@@ -613,12 +613,14 @@ caml_put_mbufs(value id, value bufs)
 	bcast = bcmp(eh->ether_dhost, lladdr_all, ETHER_ADDR_LEN) == 0;
 
 #ifdef NETIF_DEBUG
-	printf("Sending to: %02x:%02x:%02x:%02x:%02x:%02x (%04x), %s%s.\n",
+	printf("Sending to: %02x:%02x:%02x:%02x:%02x:%02x (%04x), %s%s"
+	    " size=%d.\n",
 	    eh->ether_dhost[0], eh->ether_dhost[1], eh->ether_dhost[2],
 	    eh->ether_dhost[3], eh->ether_dhost[4], eh->ether_dhost[5],
 	    ntohs(eh->ether_type),
 	    (real || bcast)  ? "[if_input]"  : "",
-	    (!real || bcast) ? "[if_output]" : "");
+	    (!real || bcast) ? "[if_output]" : "",
+	    (int) pkt_len);
 #endif
 
 	/* Sending to the real Ethernet address. */
