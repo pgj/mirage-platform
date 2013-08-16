@@ -489,18 +489,10 @@ netif_mbuf_free(void *p1, void *p2)
 	switch (meta->bm_type) {
 		case BM_IOPAGE:
 			contigfree(p2, meta->bm_size, M_MIRAGE);
-			stat_bigarray_allocated -=
-			    (meta->bm_size) + sizeof(meta);
-			stat_bigarray_iopage -=
-			    meta->bm_size + sizeof(meta);
 			break;
 
 		case BM_MBUF:
 			__free(p2);
-			stat_bigarray_allocated -=
-			    (meta->bm_size) + sizeof(meta);
-			stat_bigarray_mbuf -=
-			    meta->bm_size + sizeof(meta);
 			break;
 
 		default:

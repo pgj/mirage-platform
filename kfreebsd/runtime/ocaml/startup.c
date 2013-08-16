@@ -15,7 +15,10 @@
 
 /* Start-up code */
 
-#if !defined(__FreeBSD__) && !defined(_KERNEL)
+#if defined(__FreeBSD__) && defined(_KERNEL)
+#include <sys/types.h>
+#include <sys/systm.h>
+#else
 #include <stdio.h>
 #include <stdlib.h>
 #include "natdynlink.h"
@@ -129,17 +132,13 @@ static void scanmult (char *opt, uintnat *var)
   }
 }
 
-#if defined(__FreeBSD__) && defined(_KERNEL)
-extern char mir_rtparams[64];
-#endif
-
 static void parse_camlrunparam(void)
 {
 #if defined(__FreeBSD__) && defined(_KERNEL)
   char *opt;
   uintnat p;
 
-  opt = mir_rtparams;
+  opt = getenv("mirage.rtparams");
 #else
   char *opt = getenv ("OCAMLRUNPARAM");
   uintnat p;

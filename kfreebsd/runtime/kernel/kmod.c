@@ -38,7 +38,6 @@
 #include <sys/mutex.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
-#include <sys/sysctl.h>
 #include <sys/mbuf.h>
 #include <sys/sdt.h>
 
@@ -48,7 +47,6 @@
 
 CAMLprim value caml_block_kernel(value v_timeout);
 
-char mir_rtparams[64] = "";
 static char* argv[] = { "mirage", NULL };
 
 MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage run-time");
@@ -58,8 +56,6 @@ SDT_PROBE_DEFINE(mirage, kernel, kthread_loop, start, start);
 SDT_PROBE_DEFINE(mirage, kernel, kthread_loop, stop, stop);
 SDT_PROBE_DEFINE(mirage, kernel, block, timeout, timeout);
 SDT_PROBE_ARGTYPE(mirage, kernel, block, timeout, 0, "int");
-
-static SYSCTL_NODE(_kern, OID_AUTO, mirage, CTLFLAG_RD, NULL, "mirage");
 
 enum thread_state {
 	THR_NONE,
@@ -153,49 +149,6 @@ mirage_kthread_launch(void)
 }
 
 static int
-sysctl_kern_mirage_run(SYSCTL_HANDLER_ARGS)
-{
-	int error, i;
-
-	error = sysctl_wire_old_buffer(req, sizeof(int));
-	if (error == 0) {
-		i = 0;
-		error = sysctl_handle_int(oidp, &i, 0, req);
-	}
-	if (error != 0 || req->newptr == NULL)
-		return (error);
-	{
-		if (mirage_kthread_state == THR_NONE) {
-			mirage_kthread_init();
-			mirage_kthread_launch();
-		}
-		else {
-			printf("[MIRAGE] Kernel thread is already running.\n");
-		}
-	}
-	return (0);
-}
-
-SYSCTL_PROC(_kern_mirage, OID_AUTO, run, CTLTYPE_INT | CTLFLAG_RW, 0,
-    sizeof(int), sysctl_kern_mirage_run, "I", "start module");
-
-SYSCTL_STRING(_kern_mirage, OID_AUTO, rtparams, CTLFLAG_RW, &mir_rtparams,
-    sizeof(mir_rtparams), "parameters for the run-time");
-
-int stat_bigarray_allocated = 0;
-int stat_bigarray_mbuf = 0;
-int stat_bigarray_iopage = 0;
-
-SYSCTL_INT(_kern_mirage, OID_AUTO, bigarray_allocated, CTLFLAG_RD,
-    &stat_bigarray_allocated, 0, "Bytes allocated by OCaml Bigarrays.");
-
-SYSCTL_INT(_kern_mirage, OID_AUTO, bigarray_mbuf, CTLFLAG_RD,
-    &stat_bigarray_mbuf, 0, "Bytes for Bigarrays as mbuf(9)s.");
-
-SYSCTL_INT(_kern_mirage, OID_AUTO, bigarray_iopage, CTLFLAG_RD,
-    &stat_bigarray_iopage, 0, "Bytes for Bigarrays as IO pages.");
-
-static int
 event_handler(struct module *module, int event, void *arg) {
 	int retval;
 
@@ -210,6 +163,8 @@ event_handler(struct module *module, int event, void *arg) {
 		}
 		ng_ether_input_p  = netif_ether_input;
 		ng_ether_output_p = netif_ether_output;
+		mirage_kthread_init();
+		mirage_kthread_launch();
 		break;
 	case MOD_UNLOAD:
 		printf("[MIRAGE] Kernel module is about to unload.\n");
