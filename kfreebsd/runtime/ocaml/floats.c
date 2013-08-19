@@ -158,7 +158,11 @@ CAMLprim value caml_format_float(value fmt, value arg)
   } else {
     dest = caml_stat_alloc(prec);
   }
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  fixpt_to_str(d, dest, (prec > MAX_DIGITS) ? prec - MAX_DIGITS : MAX_DIGITS);
+#else
   sprintf(dest, String_val(fmt), d);
+#endif
   res = caml_copy_string(dest);
   if (dest != format_buffer) {
     caml_stat_free(dest);
