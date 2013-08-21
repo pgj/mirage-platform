@@ -110,7 +110,8 @@ enum thread_state {
 
 static enum thread_state mirage_kthread_state = THR_NONE;
 static struct thread *mirage_kthread = NULL;
-static long mirage_memlimit = 32 * 1024 * 1024; /* Default limit: 32 MB */
+static const long mirage_minmem = 32 * 1024 * 1024; /* Minimum limit: 32 MB */
+static long mirage_memlimit;
 
 int allocated(void);
 void mem_cleanup(void);
@@ -228,7 +229,7 @@ event_handler(struct module *module, int event, void *arg) {
 
 		env = getenv("mirage.maxmem");
 		if (env != NULL)
-			mirage_memlimit = atoi(env);
+			mirage_memlimit = max(atoi(env), mirage_minmem);
 
 		mirage_kthread_init();
 		mirage_kthread_launch();
