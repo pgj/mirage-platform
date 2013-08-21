@@ -157,7 +157,7 @@ caml_plug_vif(value id, value index, value mac)
 	u_char	*p1, *p2;
 #endif
 
-	pip = malloc(sizeof(struct plugged_if), M_MIRAGE, M_NOWAIT | M_ZERO);
+	pip = __calloc(1, sizeof(struct plugged_if));
 
 	if (pip == NULL)
 		caml_failwith("No memory for plugging a new interface");
@@ -189,7 +189,7 @@ caml_plug_vif(value id, value index, value mac)
 	IFNET_WUNLOCK();
 
 	if (!found) {
-		free(pip, M_MIRAGE);
+		__free(pip);
 		caml_failwith("Invalid interface");
 	}
 
@@ -253,13 +253,13 @@ caml_unplug_vif(value id)
 	while (e1 != NULL) {
 		e2 = LIST_NEXT(e1, me_next);
 		m_freem(e1->me_m);
-		free(e1, M_MIRAGE);
+		__free(e1);
 		e1 = e2;
 	}
 	LIST_INIT(&pip->pi_rx_head);
 	mtx_destroy(&pip->pi_rx_lock);
 
-	free(pip, M_MIRAGE);
+	__free(pip);
 	plugged--;
 
 	CAMLreturn(Val_unit);
@@ -304,8 +304,7 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 	if (!mine && !bcast)
 		return;
 
-	e = (struct mbuf_entry *) malloc(sizeof(struct mbuf_entry), M_MIRAGE,
-	    M_NOWAIT);
+	e = (struct mbuf_entry *) __malloc(sizeof(struct mbuf_entry));
 	e->me_m = bcast ? m_copypacket(*mp, M_DONTWAIT) : *mp;
 	mtx_lock(&pip->pi_rx_lock);
 	LIST_INSERT_HEAD(&pip->pi_rx_head, e, me_next);
@@ -377,7 +376,7 @@ caml_get_mbufs(value id)
 			}
 		}
 		e2 = LIST_NEXT(e1, me_next);
-		free(e1, M_MIRAGE);
+		__free(e1);
 		e1 = e2;
 	}
 	LIST_INIT(&pip->pi_rx_head);
@@ -431,7 +430,7 @@ caml_get_next_mbuf(value id)
 	mtx_unlock(&pip->pi_rx_lock);
 
 	if (m->m_nextpkt == NULL)
-		free(ep, M_MIRAGE);
+		__free(ep);
 
 	/* Flatten packet if it is multi-part. */
 	if (m->m_next != NULL) {
@@ -647,7 +646,7 @@ netif_cleanup(void)
 		while (e1 != NULL) {
 			e2 = LIST_NEXT(e1, me_next);
 			m_freem(e1->me_m);
-			free(e1, M_MIRAGE);
+			__free(e1);
 			e1 = e2;
 		}
 #ifdef NETIF_DEBUG
@@ -655,7 +654,7 @@ netif_cleanup(void)
 #endif
 		LIST_INIT(&p1->pi_rx_head);
 		mtx_unlock(&p1->pi_rx_lock);
-		free(p1, M_MIRAGE);
+		__free(p1);
 		plugged--;
 		p1 = p2;
 	}

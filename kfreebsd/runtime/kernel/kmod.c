@@ -89,7 +89,6 @@ struct allocation_info {
 	void *ai_ptr;
 	enum allocation_type ai_type;
 	char *ai_comment;
-	struct malloc_type *ai_mtype;
 };
 
 TAILQ_HEAD(allocations_head, allocation_info) aihead =
@@ -113,7 +112,7 @@ static enum thread_state mirage_kthread_state = THR_NONE;
 static struct thread *mirage_kthread = NULL;
 static long mirage_memlimit = 32 * 1024 * 1024; /* Default limit: 32 MB */
 
-int allocated(struct malloc_type *type);
+int allocated(void);
 void mem_cleanup(void);
 
 /* netgraph node hooks stolen from ng_ether(4) */
@@ -273,13 +272,13 @@ caml_block_kernel(value v_timeout)
 }
 
 int
-allocated(struct malloc_type *type)
+allocated(void)
 {
 	struct malloc_type_internal *mtip;
 	long alloced;
 	int i;
 
-	mtip = type->ks_handle;
+	mtip = M_MIRAGE->ks_handle;
 	alloced = 0;
 	for (i = 0; i < MAXCPU; i++)
 		alloced += mtip->mti_stats[i].mts_memalloced;
@@ -289,8 +288,8 @@ allocated(struct malloc_type *type)
 
 #ifdef MEM_DEBUG
 static void
-register_allocation(void *addr, unsigned long size, struct malloc_type *type,
-    char *file, int line, enum allocation_type atype, char *comment)
+register_allocation(void *addr, unsigned long size, char *file, int line,
+    enum allocation_type atype, char *comment)
 {
 	struct allocation_info *a;
 
@@ -302,7 +301,6 @@ register_allocation(void *addr, unsigned long size, struct malloc_type *type,
 		a->ai_ptr = addr;
 		a->ai_size = size;
 		a->ai_type = atype;
-		a->ai_mtype = type;
 		a->ai_comment = comment;
 		mtx_lock(&aihead_lock);
 		TAILQ_INSERT_HEAD(&aihead, a, ai_next);
@@ -314,14 +312,13 @@ register_allocation(void *addr, unsigned long size, struct malloc_type *type,
 }
 
 static void
-unregister_allocation(void *addr, unsigned long size,
-    struct malloc_type *type, char *file, int line)
+unregister_allocation(void *addr, unsigned long size, char *file, int line)
 {
 	struct allocation_info *a, *a_tmp;
 
 	mtx_lock(&aihead_lock);
 	TAILQ_FOREACH_SAFE(a, &aihead, ai_next, a_tmp) {
-		if (a->ai_ptr == addr && a->ai_mtype == type) {
+		if (a->ai_ptr == addr) {
 			if ((size > 0 && a->ai_size == size) || size == 0) {
 				TAILQ_REMOVE(&aihead, a, ai_next);
 				if (a->ai_comment)
@@ -337,10 +334,6 @@ unregister_allocation(void *addr, unsigned long size,
 			    "loc=%s:%d\n", addr, size, file, line);
 			break;
 		}
-		else
-		if (a->ai_ptr == addr && a->ai_mtype != type)
-			printf("Warning: memory type (%p/=%p) mismatch?\n",
-			    a->ai_mtype, type);
 	}
 	mtx_unlock(&aihead_lock);
 }
@@ -348,40 +341,38 @@ unregister_allocation(void *addr, unsigned long size,
 
 #ifdef MEM_DEBUG
 void *
-mir_malloc(unsigned long size, struct malloc_type *type, int flags,
-    char* file, int line, char *comment)
+mir_malloc(unsigned long size, int flags, char* file, int line, char *comment)
 #else
 void *
-mir_malloc(unsigned long size, struct malloc_type *type, int flags)
+mir_malloc(unsigned long size, int flags)
 #endif
 {
 #ifdef MEM_DEBUG
 	void *p;
 #endif
 
-	if (allocated(type) + size > mirage_memlimit) return NULL;
+	if (allocated() + size > mirage_memlimit) return NULL;
 
 #ifdef MEM_DEBUG
-	p = malloc(size, type, flags);
+	p = malloc(size, M_MIRAGE, flags);
 
 	if (p != NULL)
-		register_allocation(p, size, type, file, line, ALLOC_MALLOC,
+		register_allocation(p, size, file, line, ALLOC_MALLOC,
 		    comment);
 
 	return p;
 #else
-	return malloc(size, type, flags);
+	return malloc(size, M_MIRAGE, flags);
 #endif
 }
 
 #ifdef MEM_DEBUG
 void *
-mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
-    int flags, char* file, int line, char *comment)
+mir_realloc(void *addr, unsigned long size, int flags, char* file, int line,
+    char *comment)
 #else
 void *
-mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
-    int flags)
+mir_realloc(void *addr, unsigned long size, int flags)
 #endif
 {
 	uma_slab_t slab;
@@ -398,71 +389,84 @@ mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
 	old_size = (!(slab->us_flags & UMA_SLAB_MALLOC)) ?
 	    slab->us_keg->uk_size : slab->us_size;
 
-	if (allocated(type) + (size - old_size) > mirage_memlimit)
-		return NULL;
+	if (allocated() + (size - old_size) > mirage_memlimit) return NULL;
 
 #ifdef MEM_DEBUG
-	p = realloc(addr, size, type, flags);
+	p = realloc(addr, size, M_MIRAGE, flags);
 
 	if (p != NULL) {
-		unregister_allocation(addr, 0, type, file, line);
-		register_allocation(p, size, type, file, line, ALLOC_MALLOC,
+		unregister_allocation(addr, 0, file, line);
+		register_allocation(p, size, file, line, ALLOC_MALLOC,
 		    comment);
 	}
 
 	return p;
 #else
-	return realloc(addr, size, type, flags);
+	return realloc(addr, size, M_MIRAGE, flags);
 #endif
 }
 
 #ifdef MEM_DEBUG
 void *
-mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
-    vm_paddr_t low, vm_paddr_t high, unsigned long alignment,
-    unsigned long boundary, char *file, int line, char *comment)
+mir_contigmalloc(unsigned long size, int flags, vm_paddr_t low,
+    vm_paddr_t high, unsigned long alignment, unsigned long boundary,
+    char *file, int line, char *comment)
 #else
 void *
-mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
-    vm_paddr_t low, vm_paddr_t high, unsigned long alignment,
-    unsigned long boundary)
+mir_contigmalloc(unsigned long size, int flags, vm_paddr_t low,
+    vm_paddr_t high, unsigned long alignment, unsigned long boundary)
 #endif
 {
 #ifdef MEM_DEBUG
 	void *p;
 #endif
 
-	if (allocated(type) + size > mirage_memlimit) return NULL;
+	if (allocated() + size > mirage_memlimit) return NULL;
 
 #ifdef MEM_DEBUG
-	p = contigmalloc(size, type, flags, low, high, alignment, boundary);
+	p = contigmalloc(size, M_MIRAGE, flags, low, high, alignment,
+	    boundary);
 
 	if (p != NULL)
-		register_allocation(p, size, type, file, line, ALLOC_CONTIG,
+		register_allocation(p, size, file, line, ALLOC_CONTIG,
 		    comment);
 
 	return p;
 #else
-	return contigmalloc(size, type, flags, low, high, alignment, boundary);
+	return contigmalloc(size, M_MIRAGE, flags, low, high, alignment,
+	    boundary);
 #endif
 }
 
 #ifdef MEM_DEBUG
 void
-mir_free(void *addr, struct malloc_type *mtp, char *file, int line)
+mir_free(void *addr, char *file, int line)
+#else
+void
+mir_free(void *addr)
+#endif
 {
 	free(addr, M_MIRAGE);
-	unregister_allocation(addr, 0, mtp, file, line);
+#ifdef MEM_DEBUG
+	unregister_allocation(addr, 0, file, line);
+#endif
 }
 
+#ifdef MEM_DEBUG
 void
-mir_contigfree(void *addr, unsigned long size, struct malloc_type *type,
-    char *file, int line)
+mir_contigfree(void *addr, unsigned long size, char *file, int line)
+#else
+void
+mir_contigfree(void *addr, unsigned long size)
+#endif
 {
-	contigfree(addr, size, type);
-	unregister_allocation(addr, size, type, file, line);
+	contigfree(addr, size, M_MIRAGE);
+#ifdef MEM_DEBUG
+	unregister_allocation(addr, size, file, line);
+#endif
 }
 
+#ifdef MEM_DEBUG
 static void
 check_for_leaks(void)
 {
