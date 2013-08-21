@@ -217,28 +217,36 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   res = caml_alloc_custom(&caml_ba_ops, asize, size, CAML_BA_MAX_MEMORY);
   b = Caml_ba_array_val(res);
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  b->data2 = __malloc(sizeof(struct caml_ba_meta));
-  if (b->data2 == NULL) caml_raise_out_of_memory();
-  meta = (struct caml_ba_meta *) b->data2;
+  if ((flags & CAML_BA_MANAGED_MASK) != CAML_BA_MANAGED) {
+    b->data2 = __malloc(sizeof(struct caml_ba_meta));
+    if (b->data2 == NULL) caml_raise_out_of_memory();
+    meta = (struct caml_ba_meta *) b->data2;
 
-  for (meta->bm_size = 0, i = 0; i < num_dims; i++)
-    meta->bm_size += dim[i];
-  meta->bm_refcnt = 1;
+    for (meta->bm_size = 0, i = 0; i < num_dims; i++)
+      meta->bm_size += dim[i];
+    meta->bm_refcnt = 1;
 
-  if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_MBUF) {
-    meta->bm_type = BM_MBUF;
-    meta->bm_mbuf = data;
-    b->data = mtod((struct mbuf *) meta->bm_mbuf, void *);
+    if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_MBUF) {
+      meta->bm_type = BM_MBUF;
+      meta->bm_mbuf = data;
+      b->data = mtod((struct mbuf *) meta->bm_mbuf, void *);
+    }
+    else
+    if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_IOPAGE) {
+      meta->bm_type = BM_IOPAGE;
+      meta->bm_mbuf = NULL;
+      b->data = data;
+    }
+    else printf("caml_ba_alloc: Unknown flags=%04x\n",
+      (unsigned int) b->flags);
   }
-  else
-  if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_IOPAGE) {
-    meta->bm_type = BM_IOPAGE;
-    meta->bm_mbuf = NULL;
-    b->data = data;
+  else {
+    b->data  = data;
+    b->data2 = NULL;
   }
-  else
-#endif
+#else
   b->data = data;
+#endif
 
   b->num_dims = num_dims;
   b->flags = flags;
@@ -608,13 +616,13 @@ static void caml_ba_finalize(value v)
     switch (meta->bm_type) {
       case BM_IOPAGE:
         contigfree(b->data, meta->bm_size, M_MIRAGE);
-        __free(meta);
         break;
       case BM_MBUF:
         m_free(meta->bm_mbuf);
         break;
     }
 
+    __free(meta);
     break;
   case CAML_BA_MAPPED_FILE:
     caml_failwith("CAML_BA_MAPPED_FILE: unsupported");
