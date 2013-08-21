@@ -199,7 +199,7 @@ leakfinder_init(void)
 
 static int
 event_handler(struct module *module, int event, void *arg) {
-	int retval;
+	int retval, limit;
 	char *env;
 
 	retval = 0;
@@ -218,8 +218,8 @@ event_handler(struct module *module, int event, void *arg) {
 		ng_ether_output_p = netif_ether_output;
 
 		env = getenv("mirage.maxmem");
-		if (env != NULL)
-			mirage_memlimit = max(atoi(env), mirage_minmem);
+		limit = (env != NULL) ? atoi(env) : 0;
+		mirage_memlimit = max(limit, mirage_minmem);
 
 		mirage_kthread_init();
 		mirage_kthread_launch();
