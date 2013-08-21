@@ -44,6 +44,16 @@
 #include <sys/queue.h>
 #endif
 
+#include <vm/vm.h>
+#include <vm/pmap.h>
+#include <vm/vm_param.h>
+#include <vm/vm_kern.h>
+#include <vm/vm_extern.h>
+#include <vm/vm_map.h>
+#include <vm/vm_page.h>
+#include <vm/uma.h>
+#include <vm/uma_int.h>
+
 #include "caml/mlvalues.h"
 #include "caml/callback.h"
 #include "caml/memory.h"
@@ -101,7 +111,9 @@ enum thread_state {
 
 static enum thread_state mirage_kthread_state = THR_NONE;
 static struct thread *mirage_kthread = NULL;
+static long mirage_memlimit = 32 * 1024 * 1024; /* Default limit: 32 MB */
 
+int allocated(struct malloc_type *type);
 void mem_cleanup(void);
 
 /* netgraph node hooks stolen from ng_ether(4) */
@@ -198,6 +210,7 @@ leakfinder_init(void)
 static int
 event_handler(struct module *module, int event, void *arg) {
 	int retval;
+	char *env;
 
 	retval = 0;
 
@@ -213,6 +226,11 @@ event_handler(struct module *module, int event, void *arg) {
 		}
 		ng_ether_input_p  = netif_ether_input;
 		ng_ether_output_p = netif_ether_output;
+
+		env = getenv("mirage.maxmem");
+		if (env != NULL)
+			mirage_memlimit = atoi(env);
+
 		mirage_kthread_init();
 		mirage_kthread_launch();
 		break;
@@ -252,6 +270,21 @@ caml_block_kernel(value v_timeout)
 	SDT_PROBE(mirage, kernel, block, timeout, block_timo, 0, 0, 0, 0);
 	pause("caml_block_kernel", block_timo);
 	CAMLreturn(Val_unit);
+}
+
+int
+allocated(struct malloc_type *type)
+{
+	struct malloc_type_internal *mtip;
+	long alloced;
+	int i;
+
+	mtip = type->ks_handle;
+	alloced = 0;
+	for (i = 0; i < MAXCPU; i++)
+		alloced += mtip->mti_stats[i].mts_memalloced;
+
+	return alloced;
 }
 
 #ifdef MEM_DEBUG
@@ -317,9 +350,18 @@ unregister_allocation(void *addr, unsigned long size,
 void *
 mir_malloc(unsigned long size, struct malloc_type *type, int flags,
     char* file, int line, char *comment)
+#else
+void *
+mir_malloc(unsigned long size, struct malloc_type *type, int flags)
+#endif
 {
+#ifdef MEM_DEBUG
 	void *p;
+#endif
 
+	if (allocated(type) + size > mirage_memlimit) return NULL;
+
+#ifdef MEM_DEBUG
 	p = malloc(size, type, flags);
 
 	if (p != NULL)
@@ -327,14 +369,39 @@ mir_malloc(unsigned long size, struct malloc_type *type, int flags,
 		    comment);
 
 	return p;
+#else
+	return malloc(size, type, flags);
+#endif
 }
 
+#ifdef MEM_DEBUG
 void *
 mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
     int flags, char* file, int line, char *comment)
+#else
+void *
+mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
+    int flags)
+#endif
 {
+	uma_slab_t slab;
+	u_long old_size;
+#ifdef MEM_DEBUG
 	void *p;
+#endif
 
+	slab = vtoslab((vm_offset_t)addr & (~UMA_SLAB_MASK));
+
+	if (slab == NULL)
+		return NULL;
+
+	old_size = (!(slab->us_flags & UMA_SLAB_MALLOC)) ?
+	    slab->us_keg->uk_size : slab->us_size;
+
+	if (allocated(type) + (size - old_size) > mirage_memlimit)
+		return NULL;
+
+#ifdef MEM_DEBUG
 	p = realloc(addr, size, type, flags);
 
 	if (p != NULL) {
@@ -344,15 +411,30 @@ mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
 	}
 
 	return p;
+#else
+	return realloc(addr, size, type, flags);
+#endif
 }
 
+#ifdef MEM_DEBUG
 void *
 mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
-    vm_paddr_t low, vm_paddr_t high, unsigned long alignment, unsigned long boundary,
-    char *file, int line, char *comment)
+    vm_paddr_t low, vm_paddr_t high, unsigned long alignment,
+    unsigned long boundary, char *file, int line, char *comment)
+#else
+void *
+mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
+    vm_paddr_t low, vm_paddr_t high, unsigned long alignment,
+    unsigned long boundary)
+#endif
 {
+#ifdef MEM_DEBUG
 	void *p;
+#endif
 
+	if (allocated(type) + size > mirage_memlimit) return NULL;
+
+#ifdef MEM_DEBUG
 	p = contigmalloc(size, type, flags, low, high, alignment, boundary);
 
 	if (p != NULL)
@@ -360,8 +442,12 @@ mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
 		    comment);
 
 	return p;
+#else
+	return contigmalloc(size, type, flags, low, high, alignment, boundary);
+#endif
 }
 
+#ifdef MEM_DEBUG
 void
 mir_free(void *addr, struct malloc_type *mtp, char *file, int line)
 {
