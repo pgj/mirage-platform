@@ -39,7 +39,6 @@
 #include <sys/systm.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
-#include <sys/sdt.h>
 #ifdef MEM_DEBUG
 #include <sys/queue.h>
 #endif
@@ -73,7 +72,6 @@ CAMLprim value caml_block_kernel(value v_timeout);
 static char* argv[] = { "mirage", NULL };
 
 MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage run-time");
-SDT_PROVIDER_DEFINE(mirage);
 
 #ifdef MEM_DEBUG
 enum allocation_type {
@@ -96,11 +94,6 @@ TAILQ_HEAD(allocations_head, allocation_info) aihead =
 
 struct mtx aihead_lock;
 #endif
-
-SDT_PROBE_DEFINE(mirage, kernel, kthread_loop, start, start);
-SDT_PROBE_DEFINE(mirage, kernel, kthread_loop, stop, stop);
-SDT_PROBE_DEFINE(mirage, kernel, block, timeout, timeout);
-SDT_PROBE_ARGTYPE(mirage, kernel, block, timeout, 0, "int");
 
 enum thread_state {
 	THR_NONE,
@@ -139,12 +132,9 @@ mirage_kthread_body(void *arg __unused)
 		goto done;
 	}
 
-	SDT_PROBE(mirage, kernel, kthread_loop, start, 0, 0, 0, 0, 0);
 	for (; (caml_completed == 0) && (mirage_kthread_state == THR_RUNNING);) {
 		caml_completed = Bool_val(caml_callback(*v_f, Val_unit));
 	}
-	SDT_PROBE(mirage, kernel, kthread_loop, stop, caml_completed,
-	    (int) mirage_kthread_state, 0, 0, 0);
 
 done:
 	v_f = caml_named_value("OS.Main.finalize");
@@ -267,7 +257,6 @@ caml_block_kernel(value v_timeout)
 
 	block_timo = fixpt_to_int(fixpt_mul(Double_val(v_timeout),
 	    fixpt_from_int(hz)));
-	SDT_PROBE(mirage, kernel, block, timeout, block_timo, 0, 0, 0, 0);
 	pause("caml_block_kernel", block_timo);
 	CAMLreturn(Val_unit);
 }
