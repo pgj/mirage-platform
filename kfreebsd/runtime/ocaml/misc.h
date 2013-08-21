@@ -34,10 +34,47 @@
 
 MALLOC_DECLARE(M_MIRAGE);
 
-#define __malloc(X)             malloc(X, M_MIRAGE, M_NOWAIT)
-#define __realloc(P,X)          realloc(P, X, M_MIRAGE, M_NOWAIT)
-#define __calloc(X,S)           malloc(X * S, M_MIRAGE, M_NOWAIT | M_ZERO)
-#define __free(X)               free(X, M_MIRAGE)
+#ifdef MEM_DEBUG
+#define __malloc(X) \
+  mir_malloc(X, M_MIRAGE, M_NOWAIT, __FILE__, __LINE__, NULL)
+#define __mallocC(X,C) \
+  mir_malloc(X, M_MIRAGE, M_NOWAIT, __FILE__, __LINE__, C)
+#define __realloc(P,X) \
+  mir_realloc(P, X, M_MIRAGE, M_NOWAIT, __FILE__, __LINE__, NULL)
+#define __reallocC(P,X,C) \
+  mir_realloc(P, X, M_MIRAGE, M_NOWAIT, __FILE__, __LINE__, C)
+#define __calloc(X,S) \
+  mir_malloc(X * S, M_MIRAGE, M_NOWAIT | M_ZERO, __FILE__, __LINE__, NULL)
+#define __callocC(X,S,C) \
+  mir_malloc(X * S, M_MIRAGE, M_NOWAIT | M_ZERO, __FILE__, __LINE__, C)
+#define __free(X) \
+  mir_free(X, M_MIRAGE, __FILE__, __LINE__)
+#define __contigmalloc(S,F,L,H,A,B) \
+  mir_contigmalloc(S, M_MIRAGE, F, L, H, A, B, __FILE__, __LINE__, NULL)
+#define __contigmallocC(S,F,L,H,A,B,C) \
+  mir_contigmalloc(S, M_MIRAGE, F, L, H, A, B, __FILE__, __LINE__, C)
+#define __contigfree(P,S) \
+  mir_contigfree(P, S, M_MIRAGE, __FILE__, __LINE__)
+
+void *mir_malloc(unsigned long size, struct malloc_type *type, int flags,
+  char* file, int line, char *comment);
+void *mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
+  int flags, char* file, int line, char *comment);
+void *mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
+  vm_paddr_t low, vm_paddr_t high, unsigned long alignment, unsigned long boundary,
+  char *file, int line, char *comment);
+void mir_free(void *addr, struct malloc_type *mtp, char *file, int line);
+void mir_contigfree(void *addr, unsigned long size, struct malloc_type *type,
+  char *file, int line);
+#else
+#define __malloc(X)                  malloc(X, M_MIRAGE, M_NOWAIT)
+#define __realloc(P,X)               realloc(P, X, M_MIRAGE, M_NOWAIT)
+#define __calloc(X,S)                malloc(X * S, M_MIRAGE, M_NOWAIT | M_ZERO)
+#define __free(X)                    free(X, M_MIRAGE)
+#define __contigmalloc(S,F,L,H,A,B)  contigmalloc(S, M_MIRAGE, F, L, H, A, B)
+#define __contigfree(P,S)            contigfree(P, S, M_MIRAGE)
+#endif /* MEM_DEBUG */
+
 #define __fprintf(F,X...)       printf(X)
 
 int atoi(const char *str);

@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2012 Gabor Pali
+ * Copyright (c) 2012, 2013 Gabor Pali
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,8 +49,8 @@ caml_alloc_pages(value n_pages)
 	unsigned long block;
 
 	len = Int_val(n_pages);
-	block = (unsigned long) contigmalloc(PAGE_SIZE * len, M_MIRAGE,
-	    M_NOWAIT, 0, 0xffffffff, PAGE_SIZE, 0ul);
+	block = (unsigned long) __contigmalloc(PAGE_SIZE * len, M_NOWAIT, 0,
+	    0xffffffff, PAGE_SIZE, 0ul);
 	if (block == 0)
 		caml_failwith("contigmalloc");
 	result = caml_ba_alloc_dims(CAML_BA_UINT8 | CAML_BA_C_LAYOUT

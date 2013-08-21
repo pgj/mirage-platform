@@ -40,6 +40,9 @@
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/sdt.h>
+#ifdef MEM_DEBUG
+#include <sys/queue.h>
+#endif
 
 #include "caml/mlvalues.h"
 #include "caml/callback.h"
@@ -61,6 +64,29 @@ static char* argv[] = { "mirage", NULL };
 
 MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage run-time");
 SDT_PROVIDER_DEFINE(mirage);
+
+#ifdef MEM_DEBUG
+enum allocation_type {
+	ALLOC_MALLOC,
+	ALLOC_CONTIG
+};
+
+struct allocation_info {
+	TAILQ_ENTRY(allocation_info) ai_next;
+	char *ai_file;
+	int ai_line;
+	unsigned long ai_size;
+	void *ai_ptr;
+	enum allocation_type ai_type;
+	char *ai_comment;
+	struct malloc_type *ai_mtype;
+};
+
+TAILQ_HEAD(allocations_head, allocation_info) aihead =
+    TAILQ_HEAD_INITIALIZER(aihead);
+
+struct mtx aihead_lock;
+#endif
 
 SDT_PROBE_DEFINE(mirage, kernel, kthread_loop, start, start);
 SDT_PROBE_DEFINE(mirage, kernel, kthread_loop, stop, stop);
@@ -160,6 +186,15 @@ mirage_kthread_launch(void)
 	thread_unlock(mirage_kthread);
 }
 
+#ifdef MEM_DEBUG
+static void
+leakfinder_init(void)
+{
+	TAILQ_INIT(&aihead);
+	mtx_init(&aihead_lock, "aihead", NULL, MTX_DEF);
+}
+#endif
+
 static int
 event_handler(struct module *module, int event, void *arg) {
 	int retval;
@@ -168,6 +203,9 @@ event_handler(struct module *module, int event, void *arg) {
 
 	switch (event) {
 	case MOD_LOAD:
+#ifdef MEM_DEBUG
+		leakfinder_init();
+#endif
 		printf("[MIRAGE] Kernel module is about to load.\n");
 		if (ng_ether_input_p != NULL || ng_ether_output_p != NULL) {
 			printf("[MIRAGE] ng_ether(4) is in use, please disable it.\n");
@@ -216,6 +254,178 @@ caml_block_kernel(value v_timeout)
 	CAMLreturn(Val_unit);
 }
 
+#ifdef MEM_DEBUG
+static void
+register_allocation(void *addr, unsigned long size, struct malloc_type *type,
+    char *file, int line, enum allocation_type atype, char *comment)
+{
+	struct allocation_info *a;
+
+	a = (struct allocation_info *) malloc(sizeof(struct allocation_info),
+	    M_MIRAGE, M_NOWAIT);
+	if (a != NULL) {
+		a->ai_file = file;
+		a->ai_line = line;
+		a->ai_ptr = addr;
+		a->ai_size = size;
+		a->ai_type = atype;
+		a->ai_mtype = type;
+		a->ai_comment = comment;
+		mtx_lock(&aihead_lock);
+		TAILQ_INSERT_HEAD(&aihead, a, ai_next);
+		mtx_unlock(&aihead_lock);
+	}
+	else
+	printf("Warning: could not track allocation: p=%p, size=%ld, "
+	    "loc=%s:%d\n", addr, size, file, line);
+}
+
+static void
+unregister_allocation(void *addr, unsigned long size,
+    struct malloc_type *type, char *file, int line)
+{
+	struct allocation_info *a, *a_tmp;
+
+	mtx_lock(&aihead_lock);
+	TAILQ_FOREACH_SAFE(a, &aihead, ai_next, a_tmp) {
+		if (a->ai_ptr == addr && a->ai_mtype == type) {
+			if ((size > 0 && a->ai_size == size) || size == 0) {
+				TAILQ_REMOVE(&aihead, a, ai_next);
+				if (a->ai_comment)
+					free(a->ai_comment, M_MIRAGE);
+				free(a, M_MIRAGE);
+			}
+			else
+			if (size > 0) {
+				a->ai_size -= size;
+			}
+			else
+			printf("Warning: could not track free: p=%p, size=%ld, "
+			    "loc=%s:%d\n", addr, size, file, line);
+			break;
+		}
+		else
+		if (a->ai_ptr == addr && a->ai_mtype != type)
+			printf("Warning: memory type (%p/=%p) mismatch?\n",
+			    a->ai_mtype, type);
+	}
+	mtx_unlock(&aihead_lock);
+}
+#endif
+
+#ifdef MEM_DEBUG
+void *
+mir_malloc(unsigned long size, struct malloc_type *type, int flags,
+    char* file, int line, char *comment)
+{
+	void *p;
+
+	p = malloc(size, type, flags);
+
+	if (p != NULL)
+		register_allocation(p, size, type, file, line, ALLOC_MALLOC,
+		    comment);
+
+	return p;
+}
+
+void *
+mir_realloc(void *addr, unsigned long size, struct malloc_type *type,
+    int flags, char* file, int line, char *comment)
+{
+	void *p;
+
+	p = realloc(addr, size, type, flags);
+
+	if (p != NULL) {
+		unregister_allocation(addr, 0, type, file, line);
+		register_allocation(p, size, type, file, line, ALLOC_MALLOC,
+		    comment);
+	}
+
+	return p;
+}
+
+void *
+mir_contigmalloc(unsigned long size, struct malloc_type *type, int flags,
+    vm_paddr_t low, vm_paddr_t high, unsigned long alignment, unsigned long boundary,
+    char *file, int line, char *comment)
+{
+	void *p;
+
+	p = contigmalloc(size, type, flags, low, high, alignment, boundary);
+
+	if (p != NULL)
+		register_allocation(p, size, type, file, line, ALLOC_CONTIG,
+		    comment);
+
+	return p;
+}
+
+void
+mir_free(void *addr, struct malloc_type *mtp, char *file, int line)
+{
+	free(addr, M_MIRAGE);
+	unregister_allocation(addr, 0, mtp, file, line);
+}
+
+void
+mir_contigfree(void *addr, unsigned long size, struct malloc_type *type,
+    char *file, int line)
+{
+	contigfree(addr, size, type);
+	unregister_allocation(addr, size, type, file, line);
+}
+
+static void
+check_for_leaks(void)
+{
+	struct allocation_info *a, *b;
+	int i, total;
+
+	mtx_lock(&aihead_lock);
+	a = TAILQ_FIRST(&aihead);
+	i = 0;
+	total = 0;
+
+	if (a != NULL)
+		printf("Memory leaks found:\n");
+
+	while (a != NULL) {
+		printf("[%d] p=%p, size=%ld, loc=%s:%d%s", i++, a->ai_ptr,
+		    a->ai_size, a->ai_file, a->ai_line,
+		    a->ai_comment ? " " : "\n");
+
+		if (a->ai_comment) {
+			printf("(%s)\n", a->ai_comment);
+			free(a->ai_comment, M_MIRAGE);
+		}
+
+		total += a->ai_size;
+
+		switch (a->ai_type) {
+		case ALLOC_MALLOC:
+			free(a->ai_ptr, M_MIRAGE);
+			break;
+		case ALLOC_CONTIG:
+			contigfree(a->ai_ptr, a->ai_size, M_MIRAGE);
+			break;
+		}
+
+		b = TAILQ_NEXT(a, ai_next);
+		free(a, M_MIRAGE);
+		a = b;
+	}
+
+	if (i > 0)
+		printf("\n%d allocations, %d bytes leaked.\n\n", i, total);
+
+	TAILQ_INIT(&aihead);
+	mtx_unlock(&aihead_lock);
+	mtx_destroy(&aihead_lock);
+}
+#endif /* MEM_DEBUG */
+
 void
 mem_cleanup(void)
 {
@@ -229,4 +439,7 @@ mem_cleanup(void)
 	caml_close_all_channels();
 	caml_deinit_frame_descriptors();
 	caml_page_table_deinitialize();
+#ifdef MEM_DEBUG
+	check_for_leaks();
+#endif
 }

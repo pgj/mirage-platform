@@ -488,7 +488,7 @@ netif_mbuf_free(void *p1, void *p2)
 
 	switch (meta->bm_type) {
 		case BM_IOPAGE:
-			contigfree(p2, meta->bm_size, M_MIRAGE);
+			__contigfree(p2, meta->bm_size);
 			break;
 
 		case BM_MBUF:
@@ -501,7 +501,7 @@ netif_mbuf_free(void *p1, void *p2)
 			break;
 	}
 
-	free(meta, M_MIRAGE);
+	__free(meta);
 }
 
 static struct mbuf *

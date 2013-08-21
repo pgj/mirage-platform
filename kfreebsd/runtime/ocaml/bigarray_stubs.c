@@ -615,7 +615,7 @@ static void caml_ba_finalize(value v)
 
     switch (meta->bm_type) {
       case BM_IOPAGE:
-        contigfree(b->data, meta->bm_size, M_MIRAGE);
+        __contigfree(b->data, meta->bm_size);
         break;
       case BM_MBUF:
         m_free(meta->bm_mbuf);
