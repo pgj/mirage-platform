@@ -91,6 +91,7 @@ CAMLextern unsigned char * caml_page_table[Pagetable1_size];
 int caml_page_table_add(int kind, void * start, void * end);
 int caml_page_table_remove(int kind, void * start, void * end);
 int caml_page_table_initialize(mlsize_t bytesize);
+void caml_page_table_deinitialize(void);
 
 #ifdef DEBUG
 #define DEBUG_clear(result, wosize) do{ \

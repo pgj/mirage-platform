@@ -39,6 +39,7 @@
 #include "printexc.h"
 #include "stack.h"
 #include "sys.h"
+#include "startup.h"
 #ifdef HAS_UI
 #include "ui.h"
 #endif
@@ -98,6 +99,11 @@ static void init_atoms(void)
   cf->digest_computed = 0;
   caml_ext_table_init(&caml_code_fragments_table, 8);
   caml_ext_table_add(&caml_code_fragments_table, cf);
+}
+
+void caml_deinit_atoms(void)
+{
+  caml_ext_table_free(&caml_code_fragments_table, 1);
 }
 
 /* Configuration parameters and flags */

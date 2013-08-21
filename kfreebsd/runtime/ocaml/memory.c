@@ -108,6 +108,15 @@ int caml_page_table_initialize(mlsize_t bytesize)
     return 0;
 }
 
+void caml_page_table_deinitialize(void)
+{
+  caml_page_table.size = 0;
+  caml_page_table.shift = 0;
+  caml_page_table.mask = 0;
+  caml_page_table.occupancy = 0;
+  __free(caml_page_table.entries);
+}
+
 static int caml_page_table_resize(void)
 {
   struct page_table old = caml_page_table;

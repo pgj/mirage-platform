@@ -23,5 +23,6 @@
 
 void caml_scan_global_roots(scanning_action f);
 void caml_scan_global_young_roots(scanning_action f);
+void caml_free_global_roots(void);
 
 #endif /* CAML_GLOBROOTS_H */

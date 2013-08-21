@@ -52,6 +52,7 @@ void caml_final_empty_young (void);
 CAMLprim value caml_final_register (value f, value v);
 CAMLprim value caml_final_release (value unit);
 
+void caml_final_deinit(void);
 
 static void alloc_to_do (int size)
 {
@@ -258,4 +259,9 @@ CAMLprim value caml_final_release (value unit)
 {
   running_finalisation_function = 0;
   return Val_unit;
+}
+
+void caml_final_deinit(void)
+{
+  caml_stat_free(final_table);
 }

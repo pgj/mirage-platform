@@ -34,5 +34,6 @@ extern int32 caml_seek_optional_section(int fd, struct exec_trailer *trail,
                                         char *name);
 extern int32 caml_seek_section(int fd, struct exec_trailer *trail, char *name);
 
+void caml_deinit_atoms(void);
 
 #endif /* CAML_STARTUP_H */

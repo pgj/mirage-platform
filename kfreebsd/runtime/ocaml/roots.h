@@ -34,5 +34,6 @@ CAMLextern void caml_do_local_roots(scanning_action f, char * bottom_of_stack,
 #endif
 
 CAMLextern void (*caml_scan_roots_hook) (scanning_action);
+void caml_deinit_frame_descriptors(void);
 
 #endif /* CAML_ROOTS_H */

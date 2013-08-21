@@ -822,3 +822,21 @@ CAMLexport file_offset caml_File_offset_val(value v)
   return (file_offset) ofs.l;
 }
 #endif
+
+void
+caml_close_all_channels(void)
+{
+  struct channel * ch, *p;
+
+  ch = p = caml_all_opened_channels;
+  while (ch != NULL) {
+    p = ch;
+    ch = ch->prev;
+  }
+  ch = p;
+  while (ch != NULL) {
+    p = ch->next;
+    caml_stat_free(ch);
+    ch = p;
+  }
+}

@@ -64,6 +64,7 @@ extern struct custom_operations *
           caml_final_custom_operations(void (*fn)(value));
 
 extern void caml_init_custom_operations(void);
+extern void caml_deinit_custom_operations(void);
 /* </private> */
 
 #ifdef __cplusplus

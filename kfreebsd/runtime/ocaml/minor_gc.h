@@ -40,6 +40,7 @@ CAMLextern struct caml_ref_table caml_ref_table, caml_weak_ref_table;
    (addr)(val) < (addr)caml_young_end && (addr)(val) > (addr)caml_young_start)
 
 extern void caml_set_minor_heap_size (asize_t);
+extern void caml_free_minor_heap(void);
 extern void caml_empty_minor_heap (void);
 CAMLextern void caml_minor_collection (void);
 CAMLextern void garbage_collection (void); /* def in asmrun/signals.c */

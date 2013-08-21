@@ -44,6 +44,16 @@
 #include "caml/mlvalues.h"
 #include "caml/callback.h"
 #include "caml/memory.h"
+#include "caml/gc_ctrl.h"
+#include "caml/major_gc.h"
+#include "caml/minor_gc.h"
+#include "caml/io.h"
+#include "caml/roots.h"
+#include "caml/globroots.h"
+#include "caml/callback.h"
+#include "caml/startup.h"
+#include "caml/custom.h"
+#include "caml/finalise.h"
 
 CAMLprim value caml_block_kernel(value v_timeout);
 
@@ -65,6 +75,8 @@ enum thread_state {
 
 static enum thread_state mirage_kthread_state = THR_NONE;
 static struct thread *mirage_kthread = NULL;
+
+void mem_cleanup(void);
 
 /* netgraph node hooks stolen from ng_ether(4) */
 extern void (*ng_ether_input_p)(struct ifnet *ifp, struct mbuf **mp);
@@ -170,6 +182,7 @@ event_handler(struct module *module, int event, void *arg) {
 		printf("[MIRAGE] Kernel module is about to unload.\n");
 		retval = mirage_kthread_deinit();
 		netif_cleanup();
+		mem_cleanup();
 		ng_ether_input_p  = NULL;
 		ng_ether_output_p = NULL;
 		break;
@@ -201,4 +214,19 @@ caml_block_kernel(value v_timeout)
 	SDT_PROBE(mirage, kernel, block, timeout, block_timo, 0, 0, 0, 0);
 	pause("caml_block_kernel", block_timo);
 	CAMLreturn(Val_unit);
+}
+
+void
+mem_cleanup(void)
+{
+	caml_free_minor_heap();
+	caml_deinit_major_heap();
+	caml_final_deinit();
+	caml_deinit_custom_operations();
+	caml_deinit_atoms();
+	caml_free_global_roots();
+	caml_free_named_values();
+	caml_close_all_channels();
+	caml_deinit_frame_descriptors();
+	caml_page_table_deinitialize();
 }

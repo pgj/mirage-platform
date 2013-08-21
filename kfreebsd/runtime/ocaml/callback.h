@@ -50,6 +50,8 @@ CAMLextern void caml_startup (char ** argv);
 
 CAMLextern int caml_callback_depth;
 
+void caml_free_named_values(void);
+
 #ifdef __cplusplus
 }
 #endif
