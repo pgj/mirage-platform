@@ -305,6 +305,11 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 		return;
 
 	e = (struct mbuf_entry *) __malloc(sizeof(struct mbuf_entry));
+
+	/* Out of memory, cannot do much. */
+	if (e == NULL)
+		return;
+
 	e->me_m = bcast ? m_copypacket(*mp, M_DONTWAIT) : *mp;
 	mtx_lock(&pip->pi_rx_lock);
 	LIST_INSERT_HEAD(&pip->pi_rx_head, e, me_next);

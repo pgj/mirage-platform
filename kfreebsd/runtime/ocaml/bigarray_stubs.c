@@ -592,6 +592,8 @@ static void caml_ba_finalize(value v)
   struct caml_ba_meta *meta;
 #endif
 
+  if (b == NULL) return;
+
   switch (b->flags & CAML_BA_MANAGED_MASK) {
   case CAML_BA_EXTERNAL:
     break;
