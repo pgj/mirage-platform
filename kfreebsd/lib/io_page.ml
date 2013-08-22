@@ -52,9 +52,6 @@ let pages_order order = pages (1 lsl order)
 let to_cstruct t =
   Cstruct.of_bigarray t
 
-let peek t i =
-  Printf.printf "peek = %d\n%!" (Char.code t.{i})
-
 let string_blit src t =
   for i = 0 to ((String.length src) - 1) do
     t.{i} <- src.[i]

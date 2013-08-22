@@ -36,9 +36,6 @@ val length : t -> int
 val to_cstruct : t -> Cstruct.t
 val to_string : t -> string
 
-(** This should not be here. *)
-val peek : t -> int -> unit
-
 (** [to_pages t] is a list of [size] memory blocks of one page each,
     where [size] is the size of [t] in pages. *)
 val to_pages : t -> t list
