@@ -113,7 +113,7 @@ free_custom_operations_list(struct custom_operations_list *p) {
   while (p != NULL) {
     q = p->next;
 
-    if (p->ops->finalize != NULL)
+    if (p->ops != NULL && p->ops->finalize != NULL)
       p->ops->finalize((value) p->ops);
 
     caml_stat_free(p);
