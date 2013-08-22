@@ -70,6 +70,7 @@
 CAMLprim value caml_block_kernel(value v_timeout);
 
 static char* argv[] = { "mirage", NULL };
+static int inited;
 
 MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage run-time");
 
@@ -106,15 +107,12 @@ static struct thread *mirage_kthread = NULL;
 static const long mirage_minmem = 32 * 1024 * 1024; /* Minimum limit: 32 MB */
 static long mirage_memlimit;
 
+int event_handler(struct module *module, int event, void *arg);
 int allocated(void);
 void mem_cleanup(void);
 
-/* netgraph node hooks stolen from ng_ether(4) */
-extern void (*ng_ether_input_p)(struct ifnet *ifp, struct mbuf **mp);
-extern int  (*ng_ether_output_p)(struct ifnet *ifp, struct mbuf **mp);
-void netif_ether_input(struct ifnet *ifp, struct mbuf **mp);
-int  netif_ether_output(struct ifnet *ifp, struct mbuf **mp);
-void netif_cleanup(void);
+void netif_init(void);
+void netif_deinit(void);
 
 
 static void
@@ -197,7 +195,7 @@ leakfinder_init(void)
 }
 #endif
 
-static int
+int
 event_handler(struct module *module, int event, void *arg) {
 	int retval, limit;
 	char *env;
@@ -210,27 +208,23 @@ event_handler(struct module *module, int event, void *arg) {
 		leakfinder_init();
 #endif
 		printf("[MIRAGE] Kernel module is about to load.\n");
-		if (ng_ether_input_p != NULL || ng_ether_output_p != NULL) {
-			printf("[MIRAGE] ng_ether(4) is in use, please disable it.\n");
-			retval = EEXIST;
-		}
-		ng_ether_input_p  = netif_ether_input;
-		ng_ether_output_p = netif_ether_output;
-
+		netif_init();
 		env = getenv("mirage.maxmem");
 		limit = (env != NULL) ? atoi(env) : 0;
 		mirage_memlimit = max(limit, mirage_minmem);
-
 		mirage_kthread_init();
 		mirage_kthread_launch();
+		inited = 1;
 		break;
 	case MOD_UNLOAD:
 		printf("[MIRAGE] Kernel module is about to unload.\n");
+		if (!inited) {
+			retval = EALREADY;
+			break;
+		}
 		retval = mirage_kthread_deinit();
-		netif_cleanup();
+		netif_deinit();
 		mem_cleanup();
-		ng_ether_input_p  = NULL;
-		ng_ether_output_p = NULL;
 		break;
 	default:
 		retval = EOPNOTSUPP;
@@ -239,14 +233,6 @@ event_handler(struct module *module, int event, void *arg) {
 
 	return retval;
 }
-
-static moduledata_t mirage_conf = {
-    "mirage"
-,   event_handler
-,   NULL
-};
-
-DECLARE_MODULE(mirage, mirage_conf, SI_SUB_KLD, SI_ORDER_ANY);
 
 static int block_timo;
 

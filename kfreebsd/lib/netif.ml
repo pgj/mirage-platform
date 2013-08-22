@@ -62,13 +62,21 @@ let enumerate () =
   in
   read_vif vifs []
 
+let module_id =
+  Random.self_init ();
+  let a = Array.make 3 0 in
+  a.(0) <- Random.int 256;
+  a.(1) <- Random.int 256;
+  a.(2) <- Random.int 256;
+  a
+
 let mac_generator i =
   let t = Array.make 6 0x00 in
   t.(0) <- 0xDE;
   t.(1) <- 0xAD;
-  t.(2) <- 0xBE;
-  t.(3) <- 0xEF;
-  t.(4) <- (i lsr 8) land 0xFF;
+  t.(2) <- module_id.(0);
+  t.(3) <- module_id.(1);
+  t.(4) <- module_id.(2);
   t.(5) <- i land 0xFF;
   t
 
@@ -82,7 +90,7 @@ let plug id =
     let active = plug_vif id backend_id (Macaddr.to_bytes mac) in
     let t = { backend_id; backend; mac; active } in
     Hashtbl.add devices id t;
-    did := (!did + 1) mod (1 lsl 16);
+    did := (!did + 1) land 0xFF;
     return t
 
 let unplug id =

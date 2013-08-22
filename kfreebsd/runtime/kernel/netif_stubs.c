@@ -49,7 +49,7 @@
 #include "caml/fail.h"
 #include "caml/bigarray.h"
 
-const u_char lladdr_all[ETHER_ADDR_LEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+static const u_char lladdr_all[ETHER_ADDR_LEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 struct mbuf_entry {
 	LIST_ENTRY(mbuf_entry)	me_next;
@@ -74,7 +74,7 @@ struct plugged_if {
 TAILQ_HEAD(plugged_ifhead, plugged_if) pihead =
     TAILQ_HEAD_INITIALIZER(pihead);
 
-int plugged = 0;
+static int plugged;
 
 
 /* Currently only Ethernet interfaces are returned. */
@@ -85,9 +85,27 @@ CAMLprim value caml_get_mbufs(value id);
 CAMLprim value caml_get_next_mbuf(value id);
 CAMLprim value caml_put_mbufs(value id, value bufs);
 
-void netif_ether_input(struct ifnet *ifp, struct mbuf **mp);
-int  netif_ether_output(struct ifnet *ifp, struct mbuf **mp);
-void netif_cleanup(void);
+/* netgraph(3) node hooks stolen from ng_ether(4) */
+extern void (*ng_ether_input_p)(struct ifnet *ifp, struct mbuf **mp);
+extern void (*ng_ether_input_orphan_p)(struct ifnet *ifp, struct mbuf *m);
+extern int  (*ng_ether_output_p)(struct ifnet *ifp, struct mbuf **mp);
+extern void (*ng_ether_attach_p)(struct ifnet *ifp);
+extern void (*ng_ether_detach_p)(struct ifnet *ifp);
+
+void netif_init(void);
+void netif_deinit(void);
+
+static void netif_ether_input(struct ifnet *ifp, struct mbuf **mp);
+static int  netif_ether_output(struct ifnet *ifp, struct mbuf **mp);
+static void netif_ether_input_orphan(struct ifnet *ifp, struct mbuf *m);
+static void netif_ether_attach(struct ifnet *ifp);
+static void netif_ether_detach(struct ifnet *ifp);
+
+static void (*prev_ng_ether_input_p)(struct ifnet *ifp, struct mbuf **mp);
+static void (*prev_ng_ether_input_orphan_p)(struct ifnet *ifp, struct mbuf *m);
+static int  (*prev_ng_ether_output_p)(struct ifnet *ifp, struct mbuf **mp);
+static void (*prev_ng_ether_attach_p)(struct ifnet *ifp);
+static void (*prev_ng_ether_detach_p)(struct ifnet *ifp);
 
 
 static struct plugged_if *
@@ -168,8 +186,9 @@ caml_plug_vif(value id, value index, value mac)
 		if (strncmp(ifp->if_xname, String_val(id), IFNAMSIZ) != 0)
 			continue;
 
-		/* "Enable" the fake NetGraph node. */
-		IFP2AC(ifp)->ac_netgraph = (void *) 1;
+		/* Add a fake NetGraph node, if needed. */
+		if (IFP2AC(ifp)->ac_netgraph == NULL)
+			IFP2AC(ifp)->ac_netgraph = (void *) 1;
 		/* Ensure that the MTU is enough for Mirage. */
 		ifp->if_mtu   = max(1514, ifp->if_mtu);
 		pip->pi_ifp   = ifp;
@@ -236,8 +255,9 @@ caml_unplug_vif(value id)
 	IFNET_WLOCK();
 	TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
 		if (strncmp(ifp->if_xname, String_val(id), IFNAMSIZ) == 0) {
-			/* "Disable" the fake NetGraph node. */
-			IFP2AC(ifp)->ac_netgraph = (void *) 0;
+			/* Remove the fake NetGraph node, if there was any. */
+			if (IFP2AC(ifp)->ac_netgraph == (void *) 1)
+				IFP2AC(ifp)->ac_netgraph = (void *) 0;
 			break;
 		}
 	}
@@ -282,12 +302,12 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 #endif
 
 	if (plugged == 0)
-		return;
+		goto end;
 
 	pip = find_pi_by_index(ifp->if_index);
 
 	if (pip == NULL)
-		return;
+		goto end;
 
 	eh = mtod(*mp, struct ether_header *);
 	mine  = bcmp(eh->ether_dhost, pip->pi_lladdr_v, ETHER_ADDR_LEN) == 0;
@@ -302,13 +322,13 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 
 	/* Let the frame escape if it is neither ours nor broadcast. */
 	if (!mine && !bcast)
-		return;
+		goto end;
 
 	e = (struct mbuf_entry *) __malloc(sizeof(struct mbuf_entry));
 
 	/* Out of memory, cannot do much. */
 	if (e == NULL)
-		return;
+		goto end;
 
 	e->me_m = bcast ? m_copypacket(*mp, M_DONTWAIT) : *mp;
 	mtx_lock(&pip->pi_rx_lock);
@@ -323,6 +343,10 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 
 	if (!bcast)
 		*mp = NULL;
+
+end:
+	if (prev_ng_ether_input_p != NULL && (*mp) != NULL)
+		(*prev_ng_ether_input_p)(ifp, mp);
 }
 
 CAMLprim value
@@ -467,15 +491,41 @@ caml_get_next_mbuf(value id)
 int
 netif_ether_output(struct ifnet *ifp, struct mbuf **mp)
 {
+	int error;
+
 #ifdef NETIF_DEBUG
 	printf("New outgoing frame on if=[%s], feeding back.\n", ifp->if_xname);
 #endif
 
-	if (plugged == 0)
-		return 0;
+	if (plugged > 0)
+		netif_ether_input(ifp, mp);
 
-	netif_ether_input(ifp, mp);
+	if (prev_ng_ether_output_p != NULL && (*mp) != NULL)
+		if ((error = (*prev_ng_ether_output_p)(ifp, mp)) != 0)
+			return error;
+
 	return 0;
+}
+
+static void
+netif_ether_input_orphan(struct ifnet *ifp, struct mbuf *m)
+{
+	if (prev_ng_ether_input_orphan_p != NULL)
+		(*prev_ng_ether_input_orphan_p)(ifp, m);
+}
+
+static void
+netif_ether_attach(struct ifnet *ifp)
+{
+	if (prev_ng_ether_attach_p != NULL)
+		(*prev_ng_ether_attach_p)(ifp);
+}
+
+static void
+netif_ether_detach(struct ifnet *ifp)
+{
+	if (prev_ng_ether_attach_p != NULL)
+		(*prev_ng_ether_detach_p)(ifp);
 }
 
 static void
@@ -633,18 +683,44 @@ caml_put_mbufs(value id, value bufs)
 }
 
 void
-netif_cleanup(void)
+netif_init(void)
+{
+	prev_ng_ether_input_p = ng_ether_input_p;
+	ng_ether_input_p = netif_ether_input;
+
+	prev_ng_ether_input_orphan_p = ng_ether_input_orphan_p;
+	ng_ether_input_orphan_p = netif_ether_input_orphan;
+
+	prev_ng_ether_output_p = ng_ether_output_p;
+	ng_ether_output_p = netif_ether_output;
+
+	prev_ng_ether_attach_p = ng_ether_attach_p;
+	ng_ether_attach_p = netif_ether_attach;
+
+	prev_ng_ether_detach_p = ng_ether_detach_p;
+	ng_ether_detach_p = netif_ether_detach;
+}
+
+void
+netif_deinit(void)
 {
 	struct plugged_if *p1, *p2;
 	struct ifnet *ifp;
 	struct mbuf_entry *e1, *e2;
+
+	ng_ether_input_p        = prev_ng_ether_input_p;
+	ng_ether_input_orphan_p = prev_ng_ether_input_orphan_p;
+	ng_ether_output_p       = prev_ng_ether_output_p;
+	ng_ether_attach_p       = prev_ng_ether_attach_p;
+	ng_ether_detach_p       = prev_ng_ether_detach_p;
 
 	p1 = TAILQ_FIRST(&pihead);
 	while (p1 != NULL) {
 		p2  = TAILQ_NEXT(p1, pi_next);
 		ifp = p1->pi_ifp;
 		IFNET_WLOCK();
-		IFP2AC(ifp)->ac_netgraph = (void *) 0;
+		if (IFP2AC(ifp)->ac_netgraph == (void *) 1)
+			IFP2AC(ifp)->ac_netgraph = (void *) 0;
 		IFNET_WUNLOCK();
 		mtx_lock(&p1->pi_rx_lock);
 		e1 = LIST_FIRST(&p1->pi_rx_head);
