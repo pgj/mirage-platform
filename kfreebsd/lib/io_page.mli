@@ -47,3 +47,8 @@ val string_blit : string -> int -> t -> int -> int -> unit
 
 (** [blit t1 t2] is the same as {!Bigarray.Array1.blit}. *)
 val blit : t -> t -> unit
+
+val recycle : t -> unit
+(** [recycle block] puts [block] into the stack of reusable pages if
+    the size of [block] is exactly one page, or raise
+    [Invalid_argument] otherwise. *)
