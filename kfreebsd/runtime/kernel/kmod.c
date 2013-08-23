@@ -184,8 +184,8 @@ mirage_kthread_launch(void)
 {
 	thread_lock(mirage_kthread);
 	sched_add(mirage_kthread, SRQ_BORING);
-	sched_class(mirage_kthread, PRI_TIMESHARE);
-	sched_prio(mirage_kthread, PRI_MAX_IDLE);
+	sched_class(mirage_kthread, PRI_MIN_KERN);
+	sched_prio(mirage_kthread, PRI_MIN_KERN);
 	thread_unlock(mirage_kthread);
 }
 
