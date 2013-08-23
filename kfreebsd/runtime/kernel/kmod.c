@@ -105,7 +105,7 @@ enum thread_state {
 
 static enum thread_state mirage_kthread_state = THR_NONE;
 static struct thread *mirage_kthread = NULL;
-static const long mirage_minmem = 32 * 1024 * 1024; /* Minimum limit: 32 MB */
+static const long mirage_minmem = 32 << 20; /* Minimum limit: 32 MB */
 static long mirage_memlimit;
 
 int event_handler(struct module *module, int event, void *arg);
@@ -198,10 +198,34 @@ leakfinder_init(void)
 }
 #endif
 
+static int
+get_memlimit(void)
+{
+	int limit;
+	char buf[256];
+	char *env;
+
+	limit = 0;
+	env = getenv("mirage.maxmem");
+
+	if (env != NULL)
+		limit = atoi(env);
+
+	if (module_name != NULL) {
+		snprintf(buf, 255, "mirage.%s.maxmem", module_name);
+		buf[255] = '\0';
+		env = getenv(buf);
+
+		if (env != NULL)
+			limit = atoi(env);
+	}
+
+	return max(limit, mirage_minmem);
+}
+
 int
 event_handler(struct module *module, int event, void *arg) {
-	int retval, limit;
-	char *env;
+	int retval;
 
 	retval = 0;
 
@@ -212,10 +236,10 @@ event_handler(struct module *module, int event, void *arg) {
 		leakfinder_init();
 #endif
 		printf("[%s] Kernel module is about to load.\n", module_name);
+		mirage_memlimit = get_memlimit();
+		printf("[%s] Memory limit: %d MB\n", module_name,
+		    (int) (mirage_memlimit >> 20));
 		netif_init();
-		env = getenv("mirage.maxmem");
-		limit = (env != NULL) ? atoi(env) : 0;
-		mirage_memlimit = max(limit, mirage_minmem);
 		mirage_kthread_init();
 		mirage_kthread_launch();
 		inited = 1;
