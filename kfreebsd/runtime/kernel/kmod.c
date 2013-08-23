@@ -72,7 +72,7 @@ CAMLprim value caml_block_kernel(value v_timeout);
 static char* argv[] = { "mirage", NULL };
 static int inited;
 
-MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage run-time");
+static MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage/kFreeBSD");
 
 #ifdef MEM_DEBUG
 enum allocation_type {
@@ -90,10 +90,10 @@ struct allocation_info {
 	char *ai_comment;
 };
 
-TAILQ_HEAD(allocations_head, allocation_info) aihead =
+static TAILQ_HEAD(allocations_head, allocation_info) aihead =
     TAILQ_HEAD_INITIALIZER(aihead);
 
-struct mtx aihead_lock;
+static struct mtx aihead_lock;
 #endif
 
 enum thread_state {
@@ -108,8 +108,9 @@ static const long mirage_minmem = 32 * 1024 * 1024; /* Minimum limit: 32 MB */
 static long mirage_memlimit;
 
 int event_handler(struct module *module, int event, void *arg);
-int allocated(void);
-void mem_cleanup(void);
+
+static int allocated(void);
+static void mem_cleanup(void);
 
 void netif_init(void);
 void netif_deinit(void);
@@ -247,7 +248,7 @@ caml_block_kernel(value v_timeout)
 	CAMLreturn(Val_unit);
 }
 
-int
+static int
 allocated(void)
 {
 	struct malloc_type_internal *mtip;
@@ -492,7 +493,7 @@ check_for_leaks(void)
 }
 #endif /* MEM_DEBUG */
 
-void
+static void
 mem_cleanup(void)
 {
 	caml_free_minor_heap();
