@@ -71,6 +71,7 @@ CAMLprim value caml_block_kernel(value v_timeout);
 
 static char* argv[] = { "mirage", NULL };
 static int inited;
+static const char* module_name;
 
 static MALLOC_DEFINE(M_MIRAGE, "mirage", "Mirage/kFreeBSD");
 
@@ -127,7 +128,8 @@ mirage_kthread_body(void *arg __unused)
 	v_f = caml_named_value("OS.Main.run");
 
 	if (v_f == NULL) {
-		printf("[MIRAGE] Function 'OS.Main.run' could not be found.\n");
+		printf("[%s] Function 'OS.Main.run' could not be found.\n",
+		    module_name);
 		goto done;
 	}
 
@@ -157,7 +159,8 @@ mirage_kthread_init(void)
 	    RFSTOPPED, 40, "mirage");
 	mirage_kthread_state = THR_STOPPED;
 	if (error != 0) {
-		printf("[MIRAGE] Could not create herding kernel thread.\n");
+		printf("[%s] Could not create herding kernel thread.\n",
+		    module_name);
 		goto done;
 	}
 
@@ -205,10 +208,11 @@ event_handler(struct module *module, int event, void *arg) {
 
 	switch (event) {
 	case MOD_LOAD:
+		module_name = module_getname(module);
 #ifdef MEM_DEBUG
 		leakfinder_init();
 #endif
-		printf("[MIRAGE] Kernel module is about to load.\n");
+		printf("[%s] Kernel module is about to load.\n", module_name);
 		netif_init();
 		env = getenv("mirage.maxmem");
 		limit = (env != NULL) ? atoi(env) : 0;
@@ -218,7 +222,8 @@ event_handler(struct module *module, int event, void *arg) {
 		inited = 1;
 		break;
 	case MOD_UNLOAD:
-		printf("[MIRAGE] Kernel module is about to unload.\n");
+		printf("[%s] Kernel module is about to unload.\n",
+		    module_name);
 		if (!inited) {
 			retval = EALREADY;
 			break;
