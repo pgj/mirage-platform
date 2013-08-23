@@ -157,14 +157,13 @@ mirage_kthread_init(void)
 
 	error = kthread_add(mirage_kthread_body, NULL, NULL, &mirage_kthread,
 	    RFSTOPPED, 40, "mirage");
+
 	mirage_kthread_state = THR_STOPPED;
-	if (error != 0) {
+
+	if (error != 0)
 		printf("[%s] Could not create herding kernel thread.\n",
 		    module_name);
-		goto done;
-	}
 
-done:
 	return error;
 }
 
