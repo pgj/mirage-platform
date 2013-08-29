@@ -531,31 +531,31 @@ netif_ether_detach(struct ifnet *ifp)
 static void
 netif_mbuf_free(void *p1, void *p2)
 {
-	struct caml_ba_meta *meta = (struct caml_ba_meta *) p1;
+	struct caml_ba_proxy *proxy = (struct caml_ba_proxy *) p1;
 
 #ifdef NETIF_DEBUG
 	printf("netif_mbuf_free: %p, %p\n", p1, p2);
 #endif
 
-	if (--(meta->bm_refcnt) > 0)
+	if (--(proxy->refcount) > 0)
 		return;
 
-	switch (meta->bm_type) {
-		case BM_IOPAGE:
-			__contigfree(p2, meta->bm_size);
+	switch (proxy->type) {
+		case CAML_FREEBSD_IOPAGE:
+			__contigfree(p2, proxy->size);
 			break;
 
-		case BM_MBUF:
+		case CAML_FREEBSD_MBUF:
 			__free(p2);
 			break;
 
 		default:
 			printf("Unknown Bigarray metadata type: %02x\n",
-			    meta->bm_type);
+			    proxy->type);
 			break;
 	}
 
-	__free(meta);
+	__free(proxy);
 }
 
 static struct mbuf *
@@ -564,14 +564,14 @@ netif_map_to_mbuf(struct caml_ba_array *b, int v_off, int *v_len)
 	struct mbuf **mp;
 	struct mbuf *m;
 	struct mbuf *frag;
-	struct caml_ba_meta *meta;
+	struct caml_ba_proxy *proxy;
 	void *data;
 	size_t frag_len;
 	char *p;
 
-	meta = (struct caml_ba_meta *) b->data2;
+	proxy = b->proxy;
 	data = (char *) b->data + v_off;
-	frag_len = min(meta->bm_size - v_off, *v_len);
+	frag_len = min(proxy->size - v_off, *v_len);
 	*v_len = frag_len;
 
 	mp = &frag;
@@ -589,9 +589,9 @@ netif_map_to_mbuf(struct caml_ba_array *b, int v_off, int *v_len)
 		m->m_ext.ext_type = EXT_EXTREF;
 		m->m_ext.ext_buf  = (void *) p;
 		m->m_ext.ext_free = netif_mbuf_free;
-		m->m_ext.ext_arg1 = meta;
+		m->m_ext.ext_arg1 = proxy;
 		m->m_ext.ext_arg2 = data;
-		m->m_ext.ref_cnt  = &meta->bm_refcnt;
+		m->m_ext.ref_cnt  = &proxy->refcount;
 		m->m_len          = min(MCLBYTES, frag_len);
 		m->m_data         = m->m_ext.ext_buf;
 		*(m->m_ext.ref_cnt) += 1;

@@ -187,7 +187,7 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   struct caml_ba_array * b;
   intnat dimcopy[CAML_BA_MAX_NUM_DIMS];
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  struct caml_ba_meta *meta;
+  struct caml_ba_proxy *proxy;
 #endif
 
   Assert(num_dims >= 1 && num_dims <= CAML_BA_MAX_NUM_DIMS);
@@ -218,23 +218,23 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   b = Caml_ba_array_val(res);
 #if defined(__FreeBSD__) && defined(_KERNEL)
   if ((flags & CAML_BA_MANAGED_MASK) != CAML_BA_MANAGED) {
-    b->data2 = __malloc(sizeof(struct caml_ba_meta));
-    if (b->data2 == NULL) caml_raise_out_of_memory();
-    meta = (struct caml_ba_meta *) b->data2;
+    b->proxy = __malloc(sizeof(struct caml_ba_proxy));
+    if (b->proxy == NULL) caml_raise_out_of_memory();
+    proxy = b->proxy;
 
-    for (meta->bm_size = 0, i = 0; i < num_dims; i++)
-      meta->bm_size += dim[i];
-    meta->bm_refcnt = 1;
+    for (proxy->size = 0, i = 0; i < num_dims; i++)
+      proxy->size += dim[i];
+    proxy->refcount = 1;
 
     if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_MBUF) {
-      meta->bm_type = BM_MBUF;
-      meta->bm_mbuf = data;
-      b->data = mtod((struct mbuf *) meta->bm_mbuf, void *);
+      proxy->type = CAML_FREEBSD_MBUF;
+      proxy->data = data;
+      b->data = mtod((struct mbuf *) proxy->data, void *);
     }
     else
     if ((flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_IOPAGE) {
-      meta->bm_type = BM_IOPAGE;
-      meta->bm_mbuf = NULL;
+      proxy->type = CAML_FREEBSD_IOPAGE;
+      proxy->data = NULL;
       b->data = data;
     }
     else printf("caml_ba_alloc: Unknown flags=%04x\n",
@@ -242,15 +242,15 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
   }
   else {
     b->data  = data;
-    b->data2 = NULL;
+    b->proxy = NULL;
   }
 #else
   b->data = data;
+  b->proxy = NULL;
 #endif
 
   b->num_dims = num_dims;
   b->flags = flags;
-  b->proxy = NULL;
   for (i = 0; i < num_dims; i++) b->dim[i] = dimcopy[i];
   return res;
 }
@@ -589,7 +589,7 @@ static void caml_ba_finalize(value v)
 {
   struct caml_ba_array * b = Caml_ba_array_val(v);
 #if defined(__FreeBSD__) && defined(_KERNEL)
-  struct caml_ba_meta *meta;
+  struct caml_ba_proxy *proxy;
 #endif
 
   if (b == NULL) return;
@@ -610,21 +610,21 @@ static void caml_ba_finalize(value v)
 #if defined(__FreeBSD__) && defined(_KERNEL)
   case CAML_BA_FBSD_MBUF:
   case CAML_BA_FBSD_IOPAGE:
-    meta = (struct caml_ba_meta *) b->data2;
+    proxy = b->proxy;
 
-    if (--(meta->bm_refcnt) > 0)
+    if (--(proxy->refcount) > 0)
       break;
 
-    switch (meta->bm_type) {
-      case BM_IOPAGE:
-        __contigfree(b->data, meta->bm_size);
+    switch (proxy->type) {
+      case CAML_FREEBSD_IOPAGE:
+        __contigfree(b->data, proxy->size);
         break;
-      case BM_MBUF:
-        m_free(meta->bm_mbuf);
+      case CAML_FREEBSD_MBUF:
+        m_free(proxy->data);
         break;
     }
 
-    __free(meta);
+    __free(proxy);
     break;
   case CAML_BA_MAPPED_FILE:
     caml_failwith("CAML_BA_MAPPED_FILE: unsupported");
@@ -987,6 +987,10 @@ static void caml_ba_update_proxy(struct caml_ba_array * b1,
   struct caml_ba_proxy * proxy;
   /* Nothing to do for un-managed arrays */
   if ((b1->flags & CAML_BA_MANAGED_MASK) == CAML_BA_EXTERNAL) return;
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  if ((b1->flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_IOPAGE ||
+      (b1->flags & CAML_BA_MANAGED_MASK) == CAML_BA_FBSD_MBUF) return;
+#endif
   if (b1->proxy != NULL) {
     /* If b1 is already a proxy for a larger array, increment refcount of
        proxy */

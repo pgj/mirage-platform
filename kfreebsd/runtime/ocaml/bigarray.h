@@ -68,20 +68,27 @@ enum caml_ba_managed {
 #endif
 };
 
+#if defined(__FreeBSD__) && defined(_KERNEL)
+enum caml_ba_fbsd_type {
+  CAML_FREEBSD_MBUF   = 0x70,
+  CAML_FREEBSD_IOPAGE = 0x71
+};
+#endif
+
 struct caml_ba_proxy {
-  intnat refcount;              /* Reference count */
+  int refcount;              /* Reference count */
   void * data;                  /* Pointer to base of actual data */
   uintnat size;                 /* Size of data in bytes (if mapped file) */
+#if defined(__FreeBSD__) && defined(_KERNEL)
+  enum caml_ba_fbsd_type type;
+#endif
 };
 
 struct caml_ba_array {
   void * data;                /* Pointer to raw data */
-#if defined(__FreeBSD__) && defined(_KERNEL)
-  void * data2;               /* Interoperating with FreeBSD, or NULL */
-#endif
   intnat num_dims;            /* Number of dimensions */
   intnat flags;  /* Kind of element array + memory layout + allocation status */
-  struct caml_ba_proxy * proxy; /* The proxy for sub-arrays, or NULL */
+  struct caml_ba_proxy * proxy; /* The proxy for sub-arrays, or FreeBSD meta information, or NULL */
   /* PR#5516: use C99's flexible array types if possible */
 #if (__STDC_VERSION__ >= 199901L)
   intnat dim[]  /*[num_dims]*/; /* Size in each dimension */
@@ -90,22 +97,9 @@ struct caml_ba_array {
 #endif
 };
 
-#if defined(__FreeBSD__) && defined(_KERNEL)
-#define		BM_MBUF		0x70
-#define		BM_IOPAGE	0x71
-
-struct caml_ba_meta {
-  char		bm_type;
-  int		bm_size;
-  int		bm_refcnt;
-  struct mbuf	*bm_mbuf;
-};
-#endif
-
 #define Caml_ba_array_val(v) ((struct caml_ba_array *) Data_custom_val(v))
 
 #define Caml_ba_data_val(v) (Caml_ba_array_val(v)->data)
-#define Caml_ba_mbuf_val(v) (Caml_ba_array_val(v)->data2)
 
 #if defined(IN_OCAML_BIGARRAY)
 #define CAMLBAextern CAMLexport
