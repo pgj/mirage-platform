@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: meta.c 12253 2012-03-21 14:31:18Z xleroy $ */
-
 /* Primitives for the toplevel */
 
 #if !defined(__FreeBSD__) && !defined(_KERNEL)

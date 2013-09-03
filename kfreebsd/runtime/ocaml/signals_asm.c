@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: signals_asm.c 12159 2012-02-17 10:12:09Z xleroy $ */
-
 /* Signal handling, code specific to the native-code compiler */
 
 #if defined(__FreeBSD__) && defined(_KERNEL)
@@ -28,6 +26,7 @@
 #endif
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
 #include <signal.h>
+#include <errno.h>
 #include <stdio.h>
 #endif
 #include "fail.h"
@@ -89,6 +88,9 @@ void caml_garbage_collection(void)
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
 DECLARE_SIGNAL_HANDLER(handle_signal)
 {
+  int saved_errno;
+  /* Save the value of errno (PR#5982). */
+  saved_errno = errno;
 #if !defined(POSIX_SIGNALS) && !defined(BSD_SIGNALS)
   signal(sig, handle_signal);
 #endif
@@ -106,6 +108,7 @@ DECLARE_SIGNAL_HANDLER(handle_signal)
       CONTEXT_YOUNG_LIMIT = (context_reg) caml_young_limit;
 #endif
   }
+  errno = saved_errno;
 }
 #endif /* __FreeBSD__ && _KERNEL */
 
@@ -204,6 +207,10 @@ static char sig_alt_stack[SIGSTKSZ];
 #define EXTRA_STACK 0x2000
 #endif
 
+#ifdef RETURN_AFTER_STACK_OVERFLOW
+extern void caml_stack_overflow(void);
+#endif
+
 DECLARE_SIGNAL_HANDLER(segv_handler)
 {
   struct rlimit limit;
@@ -223,19 +230,31 @@ DECLARE_SIGNAL_HANDLER(segv_handler)
       && Is_in_code_area(CONTEXT_PC)
 #endif
       ) {
-    /* Turn this into a Stack_overflow exception */
+#ifdef RETURN_AFTER_STACK_OVERFLOW
+    /* Tweak the PC part of the context so that on return from this
+       handler, we jump to the asm function [caml_stack_overflow]
+       (from $ARCH.S). */
+#ifdef CONTEXT_PC
+    CONTEXT_PC = (context_reg) &caml_stack_overflow;
+#else
+#error "CONTEXT_PC must be defined if RETURN_AFTER_STACK_OVERFLOW is"
+#endif
+#else
+    /* Raise a Stack_overflow exception straight from this signal handler */
 #if defined(CONTEXT_YOUNG_PTR) && defined(CONTEXT_EXCEPTION_POINTER)
     caml_exception_pointer = (char *) CONTEXT_EXCEPTION_POINTER;
     caml_young_ptr = (char *) CONTEXT_YOUNG_PTR;
 #endif
     caml_raise_stack_overflow();
+#endif
+  } else {
+    /* Otherwise, deactivate our exception handler and return,
+       causing fatal signal to be generated at point of error. */
+    act.sa_handler = SIG_DFL;
+    act.sa_flags = 0;
+    sigemptyset(&act.sa_mask);
+    sigaction(SIGSEGV, &act, NULL);
   }
-  /* Otherwise, deactivate our exception handler and return,
-     causing fatal signal to be generated at point of error. */
-  act.sa_handler = SIG_DFL;
-  act.sa_flags = 0;
-  sigemptyset(&act.sa_mask);
-  sigaction(SIGSEGV, &act, NULL);
 }
 
 #endif

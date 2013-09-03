@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: int64_emul.h 11156 2011-07-27 14:17:02Z doligez $ */
-
 /* Software emulation of 64-bit integer arithmetic, for C compilers
    that do not support it.  */
 
@@ -280,6 +278,20 @@ static int64 I64_of_double(__double f)
   res.l = (uint32) ldexp(frac, 32);
 #endif
   if (neg) res = I64_neg(res);
+  return res;
+}
+
+static int64 I64_bswap(int64 x)
+{
+  int64 res;
+  res.h = (((x.l & 0x000000FF) << 24) |
+           ((x.l & 0x0000FF00) << 8) |
+           ((x.l & 0x00FF0000) >> 8) |
+           ((x.l & 0xFF000000) >> 24));
+  res.l = (((x.h & 0x000000FF) << 24) |
+           ((x.h & 0x0000FF00) << 8) |
+           ((x.h & 0x00FF0000) >> 8) |
+           ((x.h & 0xFF000000) >> 24));
   return res;
 }
 

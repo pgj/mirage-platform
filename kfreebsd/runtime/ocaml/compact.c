@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: compact.c 12910 2012-09-10 09:52:09Z doligez $ */
-
 #if defined(__FreeBSD__) && defined(_KERNEL)
 #include <sys/types.h>
 #include <sys/systm.h>

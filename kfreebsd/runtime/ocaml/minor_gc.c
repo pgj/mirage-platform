@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: minor_gc.c 12194 2012-03-06 19:17:29Z doligez $ */
-
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
 #include <string.h>
 #endif
@@ -75,13 +73,14 @@ static void clear_table (struct caml_ref_table *tbl)
     tbl->limit = tbl->threshold;
 }
 
+/* size in bytes */
 void caml_set_minor_heap_size (asize_t size)
 {
   char *new_heap;
   void *new_heap_base;
 
-  Assert (size >= Minor_heap_min);
-  Assert (size <= Minor_heap_max);
+  Assert (size >= Bsize_wsize(Minor_heap_min));
+  Assert (size <= Bsize_wsize(Minor_heap_max));
   Assert (size % sizeof (value) == 0);
   if (caml_young_ptr != caml_young_end) caml_minor_collection ();
                                     Assert (caml_young_ptr == caml_young_end);

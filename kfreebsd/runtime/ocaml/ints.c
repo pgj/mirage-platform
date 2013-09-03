@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: ints.c 12149 2012-02-10 16:15:24Z doligez $ */
-
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
 #include <stdio.h>
 #include <string.h>
@@ -95,6 +93,14 @@ CAMLprim value caml_nativeint_to_int32(value v);
 CAMLprim value caml_nativeint_compare(value v1, value v2);
 CAMLprim value caml_nativeint_format(value fmt, value arg);
 CAMLprim value caml_nativeint_of_string(value s);
+value caml_bswap16_direct(value x);
+CAMLprim value caml_bswap16(value v);
+value caml_int32_direct_bswap(value v);
+CAMLprim value caml_int32_bswap(value v);
+value caml_int64_direct_bswap(value v);
+CAMLprim value caml_int64_bswap(value v);
+value caml_nativeint_direct_bswap(value v);
+CAMLprim value caml_nativeint_bswap(value v);
 
 
 #if defined(__FreeBSD__) && defined(_KERNEL)
@@ -197,6 +203,19 @@ intnat caml_safe_mod(intnat p, intnat q)
   return p >= 0 ? ar : -ar;
 }
 #endif
+
+value caml_bswap16_direct(value x)
+{
+  return ((((x & 0x00FF) << 8) |
+           ((x & 0xFF00) >> 8)));
+}
+
+CAMLprim value caml_bswap16(value v)
+{
+  intnat x = Int_val(v);
+  return (Val_int ((((x & 0x00FF) << 8) |
+                    ((x & 0xFF00) >> 8))));
+}
 
 /* Tagged integers */
 
@@ -379,6 +398,20 @@ CAMLprim value caml_int32_shift_right(value v1, value v2)
 
 CAMLprim value caml_int32_shift_right_unsigned(value v1, value v2)
 { return caml_copy_int32((uint32)Int32_val(v1) >> Int_val(v2)); }
+
+static int32 caml_swap32(int32 x)
+{
+  return (((x & 0x000000FF) << 24) |
+          ((x & 0x0000FF00) << 8) |
+          ((x & 0x00FF0000) >> 8) |
+          ((x & 0xFF000000) >> 24));
+}
+
+value caml_int32_direct_bswap(value v)
+{ return caml_swap32(v); }
+
+CAMLprim value caml_int32_bswap(value v)
+{ return caml_copy_int32(caml_swap32(Int32_val(v))); }
 
 CAMLprim value caml_int32_of_int(value v)
 { return caml_copy_int32(Long_val(v)); }
@@ -587,6 +620,26 @@ CAMLprim value caml_int64_shift_right(value v1, value v2)
 
 CAMLprim value caml_int64_shift_right_unsigned(value v1, value v2)
 { return caml_copy_int64(I64_lsr(Int64_val(v1), Int_val(v2))); }
+
+#ifdef ARCH_SIXTYFOUR
+static value caml_swap64(value x)
+{
+  return (((((x) & 0x00000000000000FF) << 56) |
+           (((x) & 0x000000000000FF00) << 40) |
+           (((x) & 0x0000000000FF0000) << 24) |
+           (((x) & 0x00000000FF000000) << 8) |
+           (((x) & 0x000000FF00000000) >> 8) |
+           (((x) & 0x0000FF0000000000) >> 24) |
+           (((x) & 0x00FF000000000000) >> 40) |
+           (((x) & 0xFF00000000000000) >> 56)));
+}
+
+value caml_int64_direct_bswap(value v)
+{ return caml_swap64(v); }
+#endif
+
+CAMLprim value caml_int64_bswap(value v)
+{ return caml_copy_int64(I64_bswap(Int64_val(v))); }
 
 CAMLprim value caml_int64_of_int(value v)
 { return caml_copy_int64(I64_of_intnat(Long_val(v))); }
@@ -822,7 +875,9 @@ CAMLprim value caml_nativeint_mod(value v1, value v2)
   if (divisor == 0) caml_raise_zero_divide();
   /* PR#4740: on some processors, modulus crashes if division overflows.
      Implement the same behavior as for type "int". */
-  if (dividend == Nativeint_min_int && divisor == -1) return caml_copy_nativeint(0);
+  if (dividend == Nativeint_min_int && divisor == -1){
+    return caml_copy_nativeint(0);
+  }
 #ifdef NONSTANDARD_DIV_MOD
   return caml_copy_nativeint(caml_safe_mod(dividend, divisor));
 #else
@@ -847,6 +902,24 @@ CAMLprim value caml_nativeint_shift_right(value v1, value v2)
 
 CAMLprim value caml_nativeint_shift_right_unsigned(value v1, value v2)
 { return caml_copy_nativeint((uintnat)Nativeint_val(v1) >> Int_val(v2)); }
+
+value caml_nativeint_direct_bswap(value v)
+{
+#ifdef ARCH_SIXTYFOUR
+  return caml_swap64(v);
+#else
+  return caml_swap32(v);
+#endif
+}
+
+CAMLprim value caml_nativeint_bswap(value v)
+{
+#ifdef ARCH_SIXTYFOUR
+  return caml_copy_nativeint(caml_swap64(Nativeint_val(v)));
+#else
+  return caml_copy_nativeint(caml_swap32(Nativeint_val(v)));
+#endif
+}
 
 CAMLprim value caml_nativeint_of_int(value v)
 { return caml_copy_nativeint(Long_val(v)); }

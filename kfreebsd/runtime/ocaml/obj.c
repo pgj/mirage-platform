@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: obj.c 12149 2012-02-10 16:15:24Z doligez $ */
-
 /* Operations on objects */
 
 #if !defined(__FreeBSD__) && !defined(_KERNEL)

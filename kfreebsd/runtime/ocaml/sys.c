@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: sys.c 12242 2012-03-14 15:27:58Z xleroy $ */
-
 /* Basic system calls */
 
 #if defined(__FreeBSD__) && defined(_KERNEL)
@@ -87,6 +85,11 @@ CAMLprim value caml_sys_time(value unit);
 CAMLprim value caml_sys_random_seed (value unit);
 CAMLprim value caml_sys_get_config(value unit);
 CAMLprim value caml_sys_read_directory(value path);
+CAMLprim value caml_sys_const_big_endian(value unit);
+CAMLprim value caml_sys_const_word_size(value unit);
+CAMLprim value caml_sys_const_ostype_unix(value unit);
+CAMLprim value caml_sys_const_ostype_win32(value unit);
+CAMLprim value caml_sys_const_ostype_cygwin(value unit);
 
 
 CAMLexport void caml_sys_error(value arg)
@@ -264,6 +267,7 @@ CAMLprim value caml_sys_getcwd(value unit)
 CAMLprim value caml_sys_getenv(value var)
 {
   char * res;
+
 #if defined(__FreeBSD__) && defined(_KERNEL)
   res = 0;
   caml_raise_not_found();
@@ -415,6 +419,35 @@ CAMLprim value caml_sys_random_seed (value unit)
   res = caml_alloc_small(n, 0);
   for (i = 0; i < n; i++) Field(res, i) = Val_long(data[i]);
   return res;
+}
+
+CAMLprim value caml_sys_const_big_endian(value unit)
+{
+#ifdef ARCH_BIG_ENDIAN
+  return Val_true;
+#else
+  return Val_false;
+#endif
+}
+
+CAMLprim value caml_sys_const_word_size(value unit)
+{
+  return Val_long(8 * sizeof(value));
+}
+
+CAMLprim value caml_sys_const_ostype_unix(value unit)
+{
+  return Val_long(0 == strcmp(OCAML_OS_TYPE,"Unix"));
+}
+
+CAMLprim value caml_sys_const_ostype_win32(value unit)
+{
+  return Val_long(0 == strcmp(OCAML_OS_TYPE,"Win32"));
+}
+
+CAMLprim value caml_sys_const_ostype_cygwin(value unit)
+{
+  return Val_long(0 == strcmp(OCAML_OS_TYPE,"Cygwin"));
 }
 
 CAMLprim value caml_sys_get_config(value unit)

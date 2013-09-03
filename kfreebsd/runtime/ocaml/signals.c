@@ -11,12 +11,11 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: signals.c 11156 2011-07-27 14:17:02Z doligez $ */
-
 /* Signal handling, code common to the bytecode and native systems */
 
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
 #include <signal.h>
+#include <errno.h>
 #endif
 #include "alloc.h"
 #include "callback.h"
@@ -122,8 +121,12 @@ CAMLexport void caml_enter_blocking_section(void)
 
 CAMLexport void caml_leave_blocking_section(void)
 {
+  int saved_errno;
+  /* Save the value of errno (PR#5982). */
+  saved_errno = errno;
   caml_leave_blocking_section_hook ();
   caml_process_pending_signals();
+  errno = saved_errno;
 }
 
 /* Execute a signal handler immediately */

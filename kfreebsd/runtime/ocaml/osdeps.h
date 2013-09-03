@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: osdeps.h 11156 2011-07-27 14:17:02Z doligez $ */
-
 /* Operating system - specific stuff */
 
 #ifndef CAML_OSDEPS_H

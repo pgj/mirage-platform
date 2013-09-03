@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: freelist.c 12910 2012-09-10 09:52:09Z doligez $ */
-
 #define FREELIST_DEBUG 0
 
 #if !defined(__FreeBSD__) && !defined(_KERNEL)
@@ -199,7 +197,8 @@ char *caml_fl_allocate (mlsize_t wo_sz)
 #if FREELIST_DEBUG
         if (i > 5) __fprintf (stderr, "FLP: found at %d  size=%d\n", i, wo_sz);
 #endif
-        result = allocate_block (Whsize_wosize (wo_sz), i, flp[i], Next(flp[i]));
+        result = allocate_block (Whsize_wosize (wo_sz), i, flp[i],
+                                 Next (flp[i]));
         goto update_flp;
       }
     }

@@ -11,8 +11,6 @@
 /*                                                                     */
 /***********************************************************************/
 
-/* $Id: misc.h 11156 2011-07-27 14:17:02Z doligez $ */
-
 /* Miscellaneous macros and variables. */
 
 #ifndef CAML_MISC_H
@@ -119,12 +117,21 @@ typedef char * addr;
 #define CAMLprim
 #define CAMLextern extern
 
+/* Weak function definitions that can be overriden by external libs */
+/* Conservatively restricted to ELF and MacOSX platforms */
+#if defined(__GNUC__) && (defined (__ELF__) || defined(__APPLE__))
+#define CAMLweakdef __attribute__((weak))
+#else
+#define CAMLweakdef
+#endif
+
 /* Assertions */
 
 /* <private> */
 
 #ifdef DEBUG
-#define CAMLassert(x) ((x) ? 0 : caml_failed_assert ( #x , __FILE__, __LINE__))
+#define CAMLassert(x) \
+  ((x) ? (void) 0 : caml_failed_assert ( #x , __FILE__, __LINE__))
 CAMLextern int caml_failed_assert (char *, char *, int);
 #else
 #define CAMLassert(x) ((void) 0)
