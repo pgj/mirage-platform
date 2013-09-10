@@ -48,6 +48,9 @@ static void scanmult (char *opt, uintnat *var);
 static struct ext_table caml_code_fragments_table;
 
 
+#if defined(__FreeBSD__) && defined(_KERNEL)
+char *get_rtparams(void);
+#endif
 
 extern int caml_parser_trace;
 CAMLexport header_t caml_atom_table[256];
@@ -142,7 +145,7 @@ static void parse_camlrunparam(void)
   char *opt;
   uintnat p;
 
-  opt = getenv("mirage.rtparams");
+  opt = get_rtparams();
 #else
   char *opt = getenv ("OCAMLRUNPARAM");
   uintnat p;

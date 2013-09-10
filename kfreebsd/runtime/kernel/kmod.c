@@ -116,6 +116,8 @@ static void mem_cleanup(void);
 void netif_init(void);
 void netif_deinit(void);
 
+char *get_rtparams(void);
+
 
 static void
 mirage_kthread_body(void *arg __unused)
@@ -221,6 +223,26 @@ get_memlimit(void)
 	}
 
 	return max(limit, mirage_minmem);
+}
+
+char *
+get_rtparams(void)
+{
+	char buf[256];
+	char *env;
+
+	env = NULL;
+
+	if (module_name != NULL) {
+		snprintf(buf, 255, "mirage.%s.rtparams", module_name);
+		buf[255] = '\0';
+		env = getenv(buf);
+	}
+
+	if (env == NULL)
+		env = getenv("mirage.rtparams");
+
+	return env;
 }
 
 int
