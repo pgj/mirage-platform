@@ -116,6 +116,7 @@ static void mem_cleanup(void);
 void netif_init(void);
 void netif_deinit(void);
 
+int get_memlimit(void);
 char *get_rtparams(void);
 
 
@@ -200,7 +201,7 @@ leakfinder_init(void)
 }
 #endif
 
-static int
+int
 get_memlimit(void)
 {
 	int limit;
