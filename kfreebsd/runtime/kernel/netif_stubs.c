@@ -60,6 +60,7 @@ struct plugged_if {
 	TAILQ_ENTRY(plugged_if)	pi_next;
 	struct ifnet		*pi_ifp;
 	u_short	pi_index;
+	u_short	pi_llindex;
 	int	pi_flags;
 	u_char	pi_lladdr[ETHER_ADDR_LEN];	/* Real MAC address */
 	u_char	pi_lladdr_v[ETHER_ADDR_LEN];	/* Virtual MAC address */
@@ -116,6 +117,18 @@ find_pi_by_index(u_short val)
 	TAILQ_FOREACH(pip, &pihead, pi_next)
 		if (pip->pi_index == val)
 			return pip;
+	return NULL;
+}
+
+static struct plugged_if *
+find_pi_by_llindex(u_short val)
+{
+	struct plugged_if *pip;
+
+	TAILQ_FOREACH(pip, &pihead, pi_next)
+		if (pip->pi_llindex == val)
+			return pip;
+
 	return NULL;
 }
 
@@ -194,6 +207,7 @@ caml_plug_vif(value id, value index, value mac)
 		pip->pi_ifp   = ifp;
 		pip->pi_flags = ifp->if_flags;
 		bcopy(ifp->if_xname, pip->pi_xname, IFNAMSIZ);
+		pip->pi_llindex = ifp->if_index;
 
 		IF_ADDR_RLOCK(ifp);
 		sdl = (struct sockaddr_dl *) ifp->if_addr->ifa_addr;
@@ -308,7 +322,7 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 		goto end;
 	}
 
-	pip = find_pi_by_index(ifp->if_index);
+	pip = find_pi_by_llindex(ifp->if_index);
 
 	if (pip == NULL) {
 #ifdef NETIF_DEBUG
