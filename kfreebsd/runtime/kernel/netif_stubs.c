@@ -301,13 +301,21 @@ netif_ether_input(struct ifnet *ifp, struct mbuf **mp)
 	printf("New incoming frame on if=[%s]!\n", ifp->if_xname);
 #endif
 
-	if (plugged == 0)
+	if (plugged == 0) {
+#ifdef NETIF_DEBUG
+		printf("No plugged interface, skipping.\n");
+#endif
 		goto end;
+	}
 
 	pip = find_pi_by_index(ifp->if_index);
 
-	if (pip == NULL)
+	if (pip == NULL) {
+#ifdef NETIF_DEBUG
+		printf("No interface found for index: %d\n", ifp->if_index);
+#endif
 		goto end;
+	}
 
 	eh = mtod(*mp, struct ether_header *);
 	mine  = bcmp(eh->ether_dhost, pip->pi_lladdr_v, ETHER_ADDR_LEN) == 0;
